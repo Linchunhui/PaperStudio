@@ -1,105 +1,137 @@
 # PaperStudio
 
-个人论文研究工作台的第一版可运行实现。重点先打通 **真实 PDF → 左右对照 → 划词批注 → 当前项目笔记 → AI 读后总结**。
+个人论文研究工作台：**搜索与推荐 → 链接/文件入库 → 按需后台处理 → PDF 连续对照阅读 → 划词笔记与总结**。
 
-这是本地单用户 MVP，不是之前的静态交互 Demo。PDF、笔记、项目和任务保存在本机 SQLite 与文件目录中。默认仅监听 `127.0.0.1`。
+本仓库包含实际前端、Python API、SQLite 数据与后台 worker。旧交互 Demo 是独立原型，不是这个服务的线上部署。当前为本地单用户版本，默认监听 `127.0.0.1`。
 
-## 快速启动
+## 启动
 
 需要 Python 3.12 和 [uv](https://docs.astral.sh/uv/)。
 
 ```bash
 git clone https://github.com/Linchunhui/PaperStudio.git
 cd PaperStudio
-uv venv
+uv venv --python 3.12
 uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python run.py
 ```
 
-打开 <http://127.0.0.1:8000>。首次启动包含一份自行编写的双语 PDF 验收样本，明确标为非论文；可直接试划词、批注、翻页和放大。传 `--no-demo` 可从空库开始。Windows 使用 `.venv\Scripts\python.exe`。
+打开 <http://127.0.0.1:8000>。Windows 对应解释器路径为 `.venv\Scripts\python.exe`。首次启动包含自行编写的两页双语 PDF 样本，明确标为非论文；传 `--no-demo` 可从空库开始。
 
-不需要模型也能上传 PDF、阅读、添加/编辑笔记、按项目管理并导出 Markdown。原文 PDF 文件始终保留；自编示例也是实际 PDF 文件，不是用 HTML 伪造的论文。
+配置使用服务端环境变量。可复制 `.env.example` 后修改，运行 `set -a; source .env; set +a`，再启动程序；应用不自动读取 `.env`。密钥不要提交到 Git 或填入前端代码。
 
-## 这一版已实现
+## 搜索与推荐
 
-- **独立阅读页面**：`/read/{paper_id}?project={project_id}`，不是弹窗。
-- **三列布局**：左原文 PDF、中间译文 PDF、右侧 AI 与笔记；页码、缩放与滚动同步，滚动同步可关闭。
-- **矢量阅读**：用 MuPDF 直接把原 PDF 页面渲染为 SVG，保留字形、公式和线条的原始矢量信息。译文 PDF 采用同一条渲染链路；原 PDF 中已有的扫描图/照片仍是位图，不会声称把它们变成矢量。
-- **划词/句子批注**：可在原文或译文上选择文字，记录引用、个人笔记、颜色、页码和选区位置；刷新后恢复，可跳回选区、编辑、删除和导出。
-- **项目隔离**：多级目录，同篇 PDF 通过 SHA256 去重后关联多个项目，每个项目有独立笔记、阅读状态和阅读页码。
-- **PDF 版本绑定**：批注绑定原文/译文 SHA256。替换译文后保留旧笔记并标记旧版本，避免高亮落到新的错误位置。后台翻译提交时检查入队版本，遇到人工替换则保留人工版并报告冲突。
-- **Skill 驱动 AI**：导读、摘要/粗读、选区摘要、读后笔记总结；服务端加载项目内 Skill 与 references，冻结输入与 Skill 版本。
-- **真实异步任务**：SQLite 持久队列和单 worker，状态查询、去重、取消和重试。服务重启后正在执行的任务标为中断，需手动重试，不假装已恢复外部模型调用。
-- **来源目录**：完整保留 144 条登记、五类分组和 P0/P1/P2。当前可浏览和筛选，尚未接通每日自动采集。
+首页为发现页，搜索已入库内容的功能保留在论文库。
 
-## 配置模型
+| 能力 | 数据与配置 |
+| --- | --- |
+| 全网搜索 | SearXNG 或 Brave Search API；覆盖其索引到的论文、官网、媒体文章和项目页面 |
+| 学术检索 | arXiv 与 Hugging Face 独立查询；不会拿库内结果冒充全网结果 |
+| HF 推荐 | 真实 Daily Papers 接口，保留发布日期、热度与原论文链接 |
+| 量子位 | 公开 RSS 内容，失败时显示来源错误与可用缓存 |
+| 机器之心 | 通过已配置搜索服务检索公开官网内容；不假设旧 RSS 仍可用 |
+| 推荐排序 | 基于兴趣词、时效与来源热度的规则排序，提供理由；不是训练好的个性化推荐模型 |
 
-支持 OpenAI 兼容的 `/chat/completions` 服务，包括本地 vLLM/SGLang 等服务。按部署的开源模型实际名称设置：
+每个来源独立显示更新状态。失败不覆盖最后成功缓存，也不把抓取时间伪装成文章发布日期。同篇论文合并发现线索，媒体文章与论文原文保留区别。
+
+全网搜索需配置其中一种服务：
 
 ```bash
-export AI_BASE_URL=http://127.0.0.1:8001/v1
-export AI_MODEL=your-open-model
-# 远程服务需要；本机 loopback 服务允许留空
-export AI_API_KEY=your-server-side-key
-.venv/bin/python run.py
+# 自建 SearXNG：需在 settings.yml 的 search.formats 中启用 json
+export SEARCH_PROVIDER=searxng
+export SEARXNG_BASE_URL=http://127.0.0.1:8080
+
+# 或者使用 Brave Search API：
+export SEARCH_PROVIDER=brave
+export BRAVE_API_KEY=your-server-side-subscription-token
 ```
 
-也可复制 `.env.example`，修改后在终端运行 `set -a; source .env; set +a`。应用不会自动读取 `.env`。密钥只从服务端环境读取，不进入浏览器、任务快照或 Git。
+没有搜索服务时，全网检索明确提示配置；arXiv/HF 学术检索和可用内容源仍可独立工作。144 条机构来源登记可浏览、筛选和关注，不代表 144 个采集器已经全部接通。公众号、X 等平台原帖以及更多大 V 可通过后续来源适配扩展；首版媒体范围为公开网站内容。
 
-在右侧选择导读、摘要模式或已保存批注的选区摘要。“读完并总结笔记”会标记当前项目已读，并基于**当前项目笔记快照**请求总结；笔记总结不冒充全文总结。无模型配置时明确显示未配置，笔记仍可保存/导出。
+## 链接导入与后台处理
 
-全文导读/粗读读取每一页可提取的文字，保留页码，并提示空文本页与图表未做视觉核验。本版没有视觉模型审图；不会声称已核验原图。超过 `AI_MAX_INPUT_CHARS` 时在模型调用前失败，不静默截断成“全文摘要”。扫描 PDF 需要先 OCR。
+支持 arXiv `/abs/`、`/pdf/`、明确的 `vN` 版本链接，以及公网 PDF 直链。DOI 暂不支持自动解析，需提供公开 PDF；其他 URL 会尝试下载并校验为 PDF，普通 HTML 页面会提示改用 PDF 链接。付费或登录后的全文不会自动获取。
 
-可选参数：`AI_TIMEOUT_SECONDS=180`、`AI_MAX_INPUT_CHARS=100000`、`AI_MAX_OUTPUT_TOKENS=8192`。输出达到 token 上限会报告截断，不保存为完整成功产物。
+文件上传与链接导入共用项目和处理选项：
 
-## 左右翻译
+- 全文文字解析；
+- 逐页中文翻译；
+- 论文导读；
+- AI 精简摘要；
+- 卡片粗读；
+- 全文总结式粗读。
 
-有两种真实入口：
+下载保存后即可打开原 PDF，其余步骤继续在后台执行。需要全文的任务自动依赖解析。步骤分别记录状态、错误、产物与任务 ID；缺少模型配置时保留已入库原文，将相关步骤显示为阻塞，配置后可重试。取消与失败不会删除已经入库的原文或已经完成的产物。
 
-1. **上传已有单语译文 PDF**：保持与原文相同页数，直接在中间栏矢量显示。不要上传左右合并版。首版按页一一对应，尚不支持重排后的跨页映射。
-2. **可选 BabelDOC 后台翻译**：单独安装并配置 `BABELDOC_BIN` 指向其命令。应用传入原 PDF 和服务端模型配置，生成单语译文 PDF，再转换成 SVG 逐页展示。未安装或未配置时不会伪造译文。
+导入时的“全文总结”根据论文材料生成；读完后的“笔记总结”只使用当前项目的个人笔记，两者分开。
+
+下载器逐次检查重定向与目标地址，拒绝内网/本机地址，并限制实际文件大小、超时和重定向次数。原 PDF 以 SHA256 内容寻址，最大 50 MB、1000 页，不支持加密文件。明确的 arXiv 版本保留在来源记录中，新版不覆盖旧原文。
+
+## 连续三栏阅读
+
+阅读器使用独立页面 `/read/{paper_id}?project={project_id}`。左右原文/译文按页成对连续滚动，右侧 AI 和笔记固定；页码用于定位，不要求逐页点击。只挂载附近页面的 SVG 与文字层，保留占位以减少长论文的内存占用。
+
+页面视觉内容直接由原 PDF 经 MuPDF 生成 SVG，文字、公式与线条保留原有矢量信息；透明文字层负责选择词句。原 PDF 中的扫描图、照片仍是位图，不会自动变为矢量。扫描件划词和全文理解需要先 OCR。
+
+批注支持原文/译文选词、句子、跨行选区、个人理解与摘要、颜色、跳回引用、编辑、删除和 Markdown 导出。每个项目分别保存笔记、阅读状态和位置；切换编辑会保护未保存草稿。
+
+## 逐页翻译
+
+可直接导入与原文页数一致的单语译文 PDF，或者配置 BabelDOC 运行真实后台翻译。
+
+逐页任务为每页保存独立译文 PDF、状态和内容哈希。一页完成后立即供阅读器获取，不等待整本完成；前端轮询页清单并更新就绪页。失败页单独记录，重试保留成功页面；全部完成后提供完整译文下载。
+
+译文批注绑定翻译批次、页码和该页产物，不因后面的页面完成而失效。人工替换译文会使旧批次失活，旧任务不能覆盖新版本。服务重启保留已经完成的页面，未完成工作需按任务状态重试。
+
+配置示例：
 
 ```bash
-# 在独立环境中安装你已验证的 BabelDOC 版本，再指向该命令：
+# 在单独工具环境中安装已验证版本，再设置可执行文件路径
+uv tool install --python 3.12 BabelDOC
 export BABELDOC_BIN=/absolute/path/to/babeldoc
 export BABELDOC_TIMEOUT_SECONDS=1800
 ```
 
-适配器使用官方 CLI 的 TOML 配置与 `--no-dual`；BabelDOC 可能另需下载字体和版面模型。此次未配置真实模型、未运行实际翻译；安装版本与翻译质量需要用真实论文验收。现有译文上传路径可立即使用。
+BabelDOC 还需要字体/版面模型资源和下述模型配置。当前实现采用应用层按页处理，首屏有实际模型调用与排版开销，不承诺即时完成。跨页段落和术语一致性可能弱于整本上下文翻译，复杂论文需要人工核对；没有用逐字打字效果替代真实的逐页 PDF 产物。
 
-## 项目内角色
+适配参数已核对 BabelDOC 官方 `main.py`（源码版本 0.6.4），并用受控子进程测试单页输入与 PDF 产物协议；尚未完成真实模型与复杂论文的翻译质量联调。
 
-| Skill | 职责 |
+## 模型与 Skills
+
+支持 OpenAI 兼容的 `/chat/completions` 服务，可使用 vLLM、SGLang 等部署的开源模型：
+
+```bash
+export AI_BASE_URL=http://127.0.0.1:8001/v1
+export AI_MODEL=your-open-model
+# 远程服务需要密钥，本机 loopback 服务允许留空
+export AI_API_KEY=your-server-side-key
+```
+
+| 项目内角色 | 职责 |
 | --- | --- |
-| `skills/paper-guide` | 从问题、前作缺口到方法机制与证据，提供阅读路线 |
-| `skills/paper-brief` | 用户提供规范的摘要、卡片粗读、连贯总结与 all 模式，附完整证据/精简/图表规则 |
-| `skills/paper-translate` | 译文术语、公式、版式和来源版本约束 |
-| `skills/reading-notes-summary` | 整理当前项目笔记，区分原文事实、个人理解、疑问和下一步 |
+| `skills/paper-guide` | 阅读路线、问题、前作缺口、方法机制和实验关注点 |
+| `skills/paper-brief` | 精简摘要、卡片粗读、连贯总结、all 模式；保留用户要求的全文证据与精简规则 |
+| `skills/paper-translate` | 翻译术语、公式、版式和版本约束 |
+| `skills/reading-notes-summary` | 当前项目笔记归纳，区分原文事实、个人判断、疑问与后续行动 |
 
-修改这些 `SKILL.md` 或 `references/*.md` 后，新任务自动使用新版本；旧任务保留快照。这些是仓库内应用角色，不会自动安装到个人全局 Skills。首版 UI 将粗读模式输出为 Markdown，尚未实现自包含 HTML、原图抽取/嵌入和公式视觉核验；规范保留供后续扩展。
+新任务加载角色及 references，旧任务保留输入、Skill 与模型配置快照。全文任务保留页码，输入超限时明确失败，不静默截断成“全文总结”。首版没有视觉模型核验原图，粗读在阅读器内输出 Markdown，不声称完成自包含 HTML/图片抽取的完整交付流程。
 
-## 开发与数据
+可调参数：`AI_TIMEOUT_SECONDS=180`、`AI_MAX_INPUT_CHARS=100000`、`AI_MAX_OUTPUT_TOKENS=8192`。模型输出达到 token 上限时报告截断。
+
+## 开发、验证与数据
 
 ```bash
 uv pip install --python .venv/bin/python -r requirements-dev.txt
 .venv/bin/python -m pytest -q
+node --check web/app.js
+node --check web/reader.js
+node tests/test_reader.mjs
+node tests/test_workspace.mjs
 ```
 
-- `app/core.py` / `core_routes.py`：项目、论文、批注与导出。
-- `app/pdf.py`：原 PDF 矢量渲染和文字坐标。
-- `app/ai.py` / `jobs.py`：模型、Skill、BabelDOC 与持久任务。
-- `web/`：无构建依赖的原生 JavaScript 前端。
-- `config/sources.json`：144 条来源原始登记。
-- `data/`：SQLite、原 PDF、译文和缓存；已被 Git 忽略。
+代码按 `app/discovery*`（发现）、`app/import*`（导入）、`app/core*`（项目/论文/批注）、`app/jobs.py`（AI任务）、`app/translations.py`（逐页译文）及 `web/`（前端）组织。API 文档运行后位于 `/docs`；验收范围与未完成的现场联调见 [验证记录](docs/validation.md)。
 
-备份时停止服务后复制整个 `data/`；不要只复制数据库而遗漏文件。可通过 `PAPERSTUDIO_DATA_DIR` 修改路径。测试使用临时目录，不改真实阅读数据。
+`data/` 保存 SQLite、PDF、解析缓存与任务产物，已被 Git 忽略。备份时停止服务后复制整个目录。`PAPERSTUDIO_DATA_DIR` 可修改路径。升级会执行兼容旧数据的数据库初始化/列迁移，升级前仍建议备份。
 
-## 验证
-
-当前 27 项自动化测试通过，覆盖 PDF/SVG、项目隔离、批注版本、持久队列、取消/重试、翻译并发冲突、Skill 加载和应用启动。详情见 [验收记录](docs/validation.md)。前端通过 JavaScript 语法检查；本次环境的浏览器预览无法启动 Python 解释器，因此实际拖选手势、视觉布局与滚动同步仍需本机验收。没有调用真实模型或运行 BabelDOC 翻译。
-
-## 第一版边界与后续
-
-本版不含正式多用户鉴权、联网论文搜索/推荐、研究雷达自动调度、URL 下载器、OCR 和系列长报告。保留这些路线，先验收阅读闭环；前一版完整产品交互稿见 [Demo](https://paperstudio-workbench-lch.honest-anole-5183.chatgpt.site)。
-
-不要直接将本地单用户服务暴露到公网。后续接入登录与用户隔离后再做多用户部署。当前仅支持单进程 worker；取消会丢弃迟到结果，但已发送的模型请求不一定能中止或免除费用。正式升级应增加数据库迁移、独立 worker 租约和更细的可恢复阶段。
+当前为本地单用户、单进程服务；下载处理与模型任务分别调度。不要在没有鉴权的情况下直接暴露公网。取消会阻止提交迟到结果，但不能保证外部模型请求停止计费。正式多用户、OCR、系列报告和完整机构自动采集仍待扩展。

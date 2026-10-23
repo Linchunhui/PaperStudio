@@ -47,6 +47,7 @@ class ProjectLink(BaseModel):
 class ReadingInput(ProjectLink):
     status: Status
     last_page: int | None = Field(default=None, ge=1)
+    page_offset: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
 
 
 class RectInput(BaseModel):
@@ -71,6 +72,7 @@ class AnnotationInput(ProjectLink):
     color: Literal["yellow", "green", "blue", "pink"] = "yellow"
     rects: list[RectInput] = Field(min_length=1, max_length=1000)
     source_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
+    translation_run_id: str | None = Field(default=None, max_length=128)
 
     @field_validator("quote")
     @classmethod
@@ -189,8 +191,9 @@ def set_reading(paper_id: str, body: ReadingInput):
     page = body.last_page if body.last_page is not None else membership["last_page"]
     if page > paper["page_count"]:
         raise HTTPException(422, "阅读位置超出论文页数")
+    offset = body.page_offset if body.page_offset is not None else (membership["page_offset"] if page == membership["last_page"] else 0)
     with core.db() as connection:
-        connection.execute("UPDATE project_papers SET status=?,last_page=?,updated_at=? WHERE paper_id=? AND project_id=?", (body.status, page, core.now(), paper_id, body.project_id))
+        connection.execute("UPDATE project_papers SET status=?,last_page=?,page_offset=?,updated_at=? WHERE paper_id=? AND project_id=?", (body.status, page, offset, core.now(), paper_id, body.project_id))
     return core.require_membership(paper_id, body.project_id)
 
 
@@ -202,23 +205,57 @@ def upload_translation(paper_id: str, file: UploadFile = File(...)):
 @router.get("/papers/{paper_id}/file")
 def file_download(paper_id: str, side: Side = "original"):
     paper = core.get_paper(paper_id)
-    path = core.paper_asset_path(paper, side)
+    if side == "translation" and paper.get("active_translation_run_id"):
+        from . import translations
+        path, sha = translations.merged_asset(paper), core.source_sha(paper, side)
+    else:
+        path, sha = core.paper_asset_path(paper, side), core.source_sha(paper, side)
     name = f"{paper['title']}{'.zh' if side == 'translation' else ''}.pdf"
     # FileResponse handles UTF-8 Content-Disposition and byte-range requests.
-    return FileResponse(path, media_type="application/pdf", filename=name, content_disposition_type="inline", headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache", "ETag": f'"{core.source_sha(paper, side)}"'})
+    return FileResponse(path, media_type="application/pdf", filename=name, content_disposition_type="inline", headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache", "ETag": f'"{sha}"'})
+
+
+@router.get("/papers/{paper_id}/page-manifest")
+def page_manifest(paper_id: str):
+    paper = core.get_paper(paper_id)
+    return {"paper_id": paper_id, "source_sha": paper["sha256"], "page_count": paper["page_count"],
+            "pages": pdf.page_manifest(core.paper_asset_path(paper))}
+
+
+@router.get("/papers/{paper_id}/translation-pages")
+def translation_pages(paper_id: str):
+    from . import translations
+    return translations.manifest(paper_id)
+
+
+def _page_asset(paper: dict, page_number: int, side: Side, version: str | None = None) -> dict:
+    if page_number < 1 or page_number > paper["page_count"]:
+        raise HTTPException(404, "论文页码不存在")
+    # A versioned progressive asset remains accessible after another page finishes
+    # or a manual replacement: the lookup is scoped to this paper and page.
+    if side == "translation" and (paper.get("active_translation_run_id") or version):
+        from . import translations
+        if paper.get("active_translation_run_id") or version != paper.get("translated_sha256"):
+            try:
+                return translations.page_asset(paper, page_number, v=version)
+            except HTTPException as exc:
+                # Keep the legacy whole-document version contract for manual PDFs.
+                if paper.get("active_translation_run_id") or exc.status_code not in {404, 409}:
+                    raise
+                raise HTTPException(409, "PDF 版本已更新，请刷新页面") from exc
+    sha = core.source_sha(paper, side)
+    if version and version != sha:
+        raise HTTPException(409, "PDF 版本已更新，请刷新页面")
+    return {"path": core.paper_asset_path(paper, side), "pdf_page": page_number,
+            "source_sha": sha, "translation_run_id": None}
 
 
 @router.get("/papers/{paper_id}/pages/{page_number}.svg")
 def svg_page(paper_id: str, page_number: int, side: Side = "original", v: str | None = None):
     paper = core.get_paper(paper_id)
-    sha = core.source_sha(paper, side)
-    if v and v != sha:
-        raise HTTPException(409, "PDF 版本已更新，请刷新页面")
-    count = paper["page_count"] if side == "original" else paper["translated_page_count"]
-    if page_number < 1 or page_number > count:
-        raise HTTPException(404, "论文页码不存在")
-    path = core.paper_asset_path(paper, side)
-    svg = pdf.page_svg(path, page_number)
+    asset = _page_asset(paper, page_number, side, v)
+    sha = asset["source_sha"]
+    svg = pdf.page_svg(asset["path"], asset["pdf_page"])
     return Response(svg, media_type="image/svg+xml", headers={
         "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache",
         "ETag": f'"{sha}-page-{page_number}"',
@@ -229,9 +266,11 @@ def svg_page(paper_id: str, page_number: int, side: Side = "original", v: str | 
 @router.get("/papers/{paper_id}/pages/{page_number}")
 def page_metadata(paper_id: str, page_number: int, side: Side = "original"):
     paper = core.get_paper(paper_id)
-    sha = core.source_sha(paper, side)
-    result = pdf.page_info(core.paper_asset_path(paper, side), page_number)
-    result.update(source_sha=sha, svg_url=f"/api/papers/{paper_id}/pages/{page_number}.svg?side={side}&v={sha}")
+    asset = _page_asset(paper, page_number, side)
+    sha = asset["source_sha"]
+    result = pdf.page_info(asset["path"], asset["pdf_page"])
+    result.update(page=page_number, source_sha=sha, translation_run_id=asset["translation_run_id"],
+                  svg_url=f"/api/papers/{paper_id}/pages/{page_number}.svg?side={side}&v={sha}")
     return result
 
 
@@ -244,21 +283,37 @@ def list_annotations(paper_id: str, project_id: str):
 def create_annotation(paper_id: str, body: AnnotationInput):
     core.require_membership(paper_id, body.project_id)
     paper = core.get_paper(paper_id)
-    sha = core.source_sha(paper, body.side)
-    if body.source_sha != sha:
-        raise HTTPException(409, "PDF 版本已改变，刷新原页后重新选择词句")
-    count = paper["page_count"] if body.side == "original" else paper["translated_page_count"]
-    if body.page > count:
+    if body.page > paper["page_count"]:
         raise HTTPException(422, "批注页码超出 PDF 范围")
+    if body.side == "original" and body.translation_run_id:
+        raise HTTPException(422, "原文批注不能携带译文任务版本")
     annotation_id = core.uid()
     timestamp = core.now()
     with core.db() as connection:
-        # The paper's translation version may change between validation and write.
+        # Validate the active page asset and write the note in one transaction.
+        # A page becoming ready later cannot invalidate an already-ready page.
         connection.execute("BEGIN IMMEDIATE")
-        current = connection.execute("SELECT sha256,translated_sha256 FROM papers WHERE id=? AND owner_id=?", (paper_id, core.OWNER_ID)).fetchone()
-        if not current or current["sha256" if body.side == "original" else "translated_sha256"] != sha:
-            raise HTTPException(409, "PDF 版本已改变，请重新选择词句")
-        connection.execute("INSERT INTO annotations(id,paper_id,project_id,side,page,quote,note,color,rects,source_sha,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (annotation_id, paper_id, body.project_id, body.side, body.page, body.quote, body.note, body.color, json.dumps([r.model_dump() for r in body.rects]), sha, timestamp, timestamp))
+        current = connection.execute("SELECT sha256,translated_sha256,active_translation_run_id FROM papers WHERE id=? AND owner_id=?", (paper_id, core.OWNER_ID)).fetchone()
+        if not current:
+            raise HTTPException(404, "论文不存在")
+        run_id = None
+        if body.side == "original":
+            sha = current["sha256"]
+        elif current["active_translation_run_id"]:
+            run_id = current["active_translation_run_id"]
+            if body.translation_run_id != run_id:
+                raise HTTPException(409, "译文任务版本已改变，请重新选择词句")
+            asset = connection.execute("SELECT asset_sha FROM translation_pages WHERE run_id=? AND page_no=? AND status='ready'", (run_id, body.page)).fetchone()
+            if not asset:
+                raise HTTPException(409, "这一页译文尚未就绪")
+            sha = asset["asset_sha"]
+        else:
+            if body.translation_run_id:
+                raise HTTPException(409, "译文任务版本已改变，请重新选择词句")
+            sha = current["translated_sha256"]
+        if not sha or body.source_sha != sha:
+            raise HTTPException(409, "PDF 版本已改变，刷新原页后重新选择词句")
+        connection.execute("INSERT INTO annotations(id,paper_id,project_id,side,page,quote,note,color,rects,source_sha,translation_run_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (annotation_id, paper_id, body.project_id, body.side, body.page, body.quote, body.note, body.color, json.dumps([r.model_dump() for r in body.rects]), sha, run_id, timestamp, timestamp))
     result = core.get_annotation(annotation_id)
     result["is_current"] = True
     return result

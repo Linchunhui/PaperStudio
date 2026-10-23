@@ -7,7 +7,7 @@ import threading
 
 from fastapi import HTTPException
 
-from . import ai, core
+from . import ai, core, translations
 
 _STOP = threading.Event()
 _WAKE = threading.Event()
@@ -49,6 +49,7 @@ def public_job(row: dict) -> dict:
     result["source_sha"] = payload["source_sha"]
     result["skill_id"] = payload["skill"]["id"]
     result["skill_version"] = payload["skill"]["sha256"]
+    result["translation_run_id"] = payload.get("translation_run_id")
     return result
 
 
@@ -105,6 +106,8 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
         # None is an explicit baseline: a first translation must not overwrite
         # a manually imported PDF that appeared after this job was enqueued.
         payload["translation_base_sha"] = paper["translated_sha256"]
+        payload["translation_base_run_id"] = paper.get("active_translation_run_id")
+        payload["start_page"] = core.require_membership(paper_id, project_id)["last_page"]
     if kind in {"selection-summary", "notes-summary"}:
         notes = core.annotation_list(paper_id, project_id)
         if kind == "selection-summary":
@@ -116,24 +119,36 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
             if not notes:
                 raise HTTPException(409, "当前项目还没有笔记。先划线或记录想法，再生成读后笔记总结。")
             payload["annotations"] = sorted(notes, key=lambda n: (n["page"], n["created_at"], n["id"]))
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    identity = {k: v for k, v in payload.items() if k not in {"translation_base_run_id", "start_page"}}
+    text = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(text.encode()).hexdigest()
     with _STATE_LOCK, core.db() as con:
         con.execute("BEGIN IMMEDIATE")
-        old = con.execute("SELECT * FROM jobs WHERE dedupe_key=? AND status IN ('queued','running','succeeded') AND owner_id='local' ORDER BY created_at DESC LIMIT 1", (digest,)).fetchone()
+        candidates = con.execute("SELECT * FROM jobs WHERE dedupe_key=? AND status IN ('queued','running','succeeded') AND owner_id='local' ORDER BY created_at DESC", (digest,)).fetchall()
+        current = con.execute("SELECT active_translation_run_id FROM papers WHERE id=?", (paper_id,)).fetchone()
+        old = next((r for r in candidates if kind != "translate" or (current["active_translation_run_id"] and json.loads(r["payload"]).get("translation_run_id") == current["active_translation_run_id"])), None)
         if old:
             result = public_job(dict(old))
             result["reused"] = True
             return result
         job_id, now = core.uid(), core.now()
+        if kind == "translate":
+            payload["translation_run_id"] = core.uid()
+            payload["schema_version"] = 2
+        text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         con.execute("INSERT INTO jobs(id,paper_id,project_id,kind,mode,status,stage,payload,dedupe_key,created_at,updated_at) VALUES(?,?,?,?,?,'queued','等待执行',?,?,?,?)", (job_id, paper_id, project_id, kind, mode, text, digest, now, now))
+        if kind == "translate":
+            translations.create_run(con, payload, job_id, payload["translation_run_id"])
     _WAKE.set()
     return get_job(job_id)
 
 
 def cancel(job_id: str) -> dict:
     with _STATE_LOCK, core.db() as con:
-        con.execute("UPDATE jobs SET status='cancelled',stage='已取消',updated_at=? WHERE id=? AND owner_id='local' AND status IN ('queued','running')", (core.now(), job_id))
+        con.execute("BEGIN IMMEDIATE")
+        changed = con.execute("UPDATE jobs SET status='cancelled',stage='已取消',updated_at=? WHERE id=? AND owner_id='local' AND status IN ('queued','running')", (core.now(), job_id)).rowcount
+        if changed:
+            translations.stop_run(con, job_id, "cancelled")
     return get_job(job_id)
 
 
@@ -149,16 +164,29 @@ def retry(job_id: str) -> dict:
         raise HTTPException(409, "原文版本已变化，请新建任务")
     if row["kind"] == "translate":
         _check_translation_baseline(payload, paper)
+        translations.validate_run(payload["translation_run_id"], job_id, running=False)
     # A retry is the same immutable material/skill snapshot. Changed model or
     # context budgets should be submitted as a new job, not change history.
     if payload["provider"] != {"base_url": cfg["base_url"], "model": cfg["model"]} or payload["input_limits"] != {"max_input_chars": cfg["max_input_chars"], "max_output_tokens": cfg["max_output_tokens"]}:
         raise HTTPException(409, "模型或上下文配置已变化，请新建任务以保存新的执行配置；原任务快照保留。")
     with _STATE_LOCK, core.db() as con:
+        con.execute("BEGIN IMMEDIATE")
+        current = con.execute("SELECT * FROM jobs WHERE id=? AND owner_id='local'", (job_id,)).fetchone()
+        if current["status"] not in {"failed", "cancelled", "interrupted"}:
+            if current["status"] in {"queued", "running"}:
+                result = public_job(dict(current))
+                result["reused"] = True
+                return result
+            raise HTTPException(409, "任务状态已变化，请刷新后再操作")
         duplicate = con.execute("SELECT * FROM jobs WHERE dedupe_key=? AND id<>? AND status IN ('queued','running','succeeded') AND owner_id='local' LIMIT 1", (row["dedupe_key"], job_id)).fetchone()
+        if duplicate and row["kind"] == "translate" and json.loads(duplicate["payload"]).get("translation_run_id") != paper.get("active_translation_run_id"):
+            duplicate = None
         if duplicate:
             result = public_job(dict(duplicate))
             result["reused"] = True
             return result
+        if row["kind"] == "translate":
+            translations.resume_run(con, payload["translation_run_id"], job_id)
         con.execute("UPDATE jobs SET status='queued',stage='等待重试',error=NULL,result_markdown=NULL,coverage='{}',updated_at=? WHERE id=? AND status IN ('failed','cancelled','interrupted')", (core.now(), job_id))
     _WAKE.set()
     return get_job(job_id)
@@ -188,6 +216,10 @@ def _check_translation_baseline(payload: dict, paper: dict):
         raise HTTPException(409, "旧翻译任务没有译文版本快照，请重新提交翻译任务。")
     if paper["translated_sha256"] != payload["translation_base_sha"]:
         raise HTTPException(409, "译文已在任务提交后更新，保留现有译文；请确认后重新提交翻译任务。")
+    if not payload.get("translation_run_id"):
+        raise HTTPException(409, "旧翻译任务没有逐页版本快照，请重新提交翻译任务。")
+    if paper.get("active_translation_run_id") != payload["translation_run_id"]:
+        raise HTTPException(409, "译文已在任务提交后更新，保留现有译文；请确认后重新提交翻译任务。")
 
 
 def run_one() -> bool:
@@ -210,23 +242,19 @@ def run_one() -> bool:
             # final attach repeats this check atomically for updates made while
             # BabelDOC is running.
             _check_translation_baseline(payload, core.get_paper(payload["paper_id"]))
-            translated = ai.run_translation(payload, lambda: _cancelled(job_id), progress)
-            with _STATE_LOCK:
-                if _cancelled(job_id):
-                    raise ai.Cancelled()
-                core.attach_translation(payload["paper_id"], translated, "translated.pdf", expected_translation_sha=payload["translation_base_sha"])
-                answer = "单语译文 PDF 已生成并关联。可在中间栏逐页阅读矢量 SVG。自动翻译尚需人工核对术语、公式与版式。"
-                coverage = {"scope": "pdf-translation", "total_pages": payload["page_count"], "visual_evidence_verified": False}
-                _finish(job_id, answer, coverage)
+            _run_translation_pages(job_id, payload, progress)
         else:
             answer, coverage = ai.run_text(payload, lambda: _cancelled(job_id), progress)
             with _STATE_LOCK:
                 if _cancelled(job_id):
                     raise ai.Cancelled()
                 _finish(job_id, answer, coverage)
-    except ai.Cancelled:
+    except (ai.Cancelled, translations.Stopped):
         with core.db() as con:
-            con.execute("UPDATE jobs SET status=?,stage=?,updated_at=? WHERE id=? AND status='running'", ("interrupted" if _STOP.is_set() else "cancelled", "服务停止，需手动重试" if _STOP.is_set() else "已取消", core.now(), job_id))
+            status = "interrupted" if _STOP.is_set() else "cancelled"
+            changed = con.execute("UPDATE jobs SET status=?,stage=?,updated_at=? WHERE id=? AND status='running'", (status, "服务停止，需手动重试" if _STOP.is_set() else "已取消", core.now(), job_id)).rowcount
+            if changed:
+                translations.stop_run(con, job_id, status)
     except (ai.ConfigurationError, ai.ExecutionError) as exc:
         _fail(job_id, str(exc))
     except HTTPException as exc:
@@ -237,6 +265,45 @@ def run_one() -> bool:
     return True
 
 
+def _run_translation_pages(job_id: str, payload: dict, progress):
+    run_id = payload["translation_run_id"]
+    pages = translations.pending_pages(run_id, job_id, payload.get("start_page", 1))
+    for page in pages:
+        if _cancelled(job_id):
+            raise ai.Cancelled()
+        translations.start_page(run_id, job_id, page)
+        progress(f"正在翻译第 {page} / {payload['page_count']} 页 · 已完成页可先阅读", translations.counts(run_id))
+        try:
+            content = ai.run_translation_page(payload, page, lambda: _cancelled(job_id), lambda stage, _: progress(f"第 {page} 页 · {stage}", translations.counts(run_id)))
+            with _STATE_LOCK:
+                if _cancelled(job_id):
+                    raise ai.Cancelled()
+                translations.publish_page(run_id, job_id, page, content)
+        except (ai.Cancelled, translations.Stopped):
+            raise
+        except (ai.ConfigurationError, ai.ExecutionError, HTTPException) as exc:
+            if _cancelled(job_id):
+                raise ai.Cancelled()
+            # The active-run check inside fail_page propagates manual overrides;
+            # a bad individual output only fails its page and the loop continues.
+            message = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+            translations.fail_page(run_id, job_id, page, message)
+        except Exception:
+            if _cancelled(job_id):
+                raise ai.Cancelled()
+            translations.fail_page(run_id, job_id, page, "这一页翻译失败；其他页会继续，完成后可重试失败页。")
+        progress(f"已就绪 {translations.counts(run_id)['ready_pages']} / {payload['page_count']} 页", translations.counts(run_id))
+    with _STATE_LOCK:
+        if _cancelled(job_id):
+            raise ai.Cancelled()
+        coverage = translations.finish_run(run_id, job_id)
+        if coverage["ready_pages"] != coverage["total_pages"]:
+            _progress(job_id, "部分页面未完成 · 已完成页可阅读", coverage)
+            _fail(job_id, f"{coverage['failed_pages']} 页翻译失败；已完成 {coverage['ready_pages']} 页保留。重试只处理未就绪页面。")
+        else:
+            _finish(job_id, "译文页面已全部生成，并可下载合并后的单语 PDF。页面完成即开放矢量阅读；已有批注不因后续页面完成而失效。\n\n本版逐页独立翻译，跨页段落与术语一致性可能弱于整文处理；请核对术语、公式与版式。", coverage)
+
+
 def _finish(job_id: str, answer: str, coverage: dict):
     with core.db() as con:
         con.execute("UPDATE jobs SET status='succeeded',stage='已完成',error=NULL,result_markdown=?,coverage=?,updated_at=? WHERE id=? AND status='running'", (answer, json.dumps(coverage, ensure_ascii=False), core.now(), job_id))
@@ -244,7 +311,10 @@ def _finish(job_id: str, answer: str, coverage: dict):
 
 def _fail(job_id: str, message: str):
     with _STATE_LOCK, core.db() as con:
-        con.execute("UPDATE jobs SET status='failed',stage='执行失败',error=?,updated_at=? WHERE id=? AND status='running'", (message, core.now(), job_id))
+        changed = con.execute("UPDATE jobs SET status='failed',stage='执行失败',error=?,updated_at=? WHERE id=? AND status='running'", (message, core.now(), job_id)).rowcount
+        # Keep completed page assets readable. Superseded runs remain superseded.
+        if changed:
+            con.execute("UPDATE translation_runs SET status='failed',updated_at=? WHERE job_id=? AND status IN ('queued','running')", (core.now(), job_id))
 
 
 def _loop():
@@ -260,7 +330,10 @@ def start_worker():
         if _THREAD is not None and _THREAD.is_alive():
             return
         with core.db() as con:
+            interrupted = con.execute("SELECT id FROM jobs WHERE status='running'").fetchall()
             con.execute("UPDATE jobs SET status='interrupted',stage='上次服务中断，需手动重试',error='服务在执行中停止。没有自动重复外部模型调用。',updated_at=? WHERE status='running'", (core.now(),))
+            for row in interrupted:
+                translations.stop_run(con, row["id"], "interrupted")
         _STOP.clear()
         _THREAD = threading.Thread(target=_loop, daemon=True, name="paperstudio-worker")
         _THREAD.start()
@@ -272,4 +345,7 @@ def stop_worker():
     if _THREAD is not None:
         _THREAD.join(timeout=2)
     with _STATE_LOCK, core.db() as con:
+        interrupted = con.execute("SELECT id FROM jobs WHERE status='running'").fetchall()
         con.execute("UPDATE jobs SET status='interrupted',stage='服务停止，需手动重试',updated_at=? WHERE status='running'", (core.now(),))
+        for row in interrupted:
+            translations.stop_run(con, row["id"], "interrupted")

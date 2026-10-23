@@ -62,13 +62,14 @@ def init_db() -> None:
             id TEXT PRIMARY KEY, title TEXT NOT NULL, filename TEXT NOT NULL,
             sha256 TEXT NOT NULL, page_count INTEGER NOT NULL,
             translated_filename TEXT, translated_sha256 TEXT,
-            translated_page_count INTEGER, created_at TEXT NOT NULL,
+            translated_page_count INTEGER, active_translation_run_id TEXT, created_at TEXT NOT NULL,
             owner_id TEXT NOT NULL DEFAULT 'local', UNIQUE(owner_id, sha256)
         );
         CREATE TABLE IF NOT EXISTS project_papers (
             paper_id TEXT NOT NULL REFERENCES papers(id),
             project_id TEXT NOT NULL REFERENCES projects(id),
             status TEXT NOT NULL DEFAULT 'unread', last_page INTEGER NOT NULL DEFAULT 1,
+            page_offset REAL NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL, PRIMARY KEY(paper_id, project_id)
         );
         CREATE TABLE IF NOT EXISTS annotations (
@@ -76,15 +77,28 @@ def init_db() -> None:
             project_id TEXT NOT NULL, side TEXT NOT NULL,
             page INTEGER NOT NULL, quote TEXT NOT NULL, note TEXT NOT NULL,
             color TEXT NOT NULL, rects TEXT NOT NULL, source_sha TEXT NOT NULL,
+            translation_run_id TEXT,
             created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
             FOREIGN KEY(paper_id, project_id) REFERENCES project_papers(paper_id, project_id)
         );
         CREATE INDEX IF NOT EXISTS annotation_context ON annotations(paper_id, project_id, page);
         """)
+        # Additive migrations preserve existing local reading data.
+        for table, column, declaration in [
+            ("papers", "active_translation_run_id", "TEXT"),
+            ("annotations", "translation_run_id", "TEXT"),
+            ("project_papers", "page_offset", "REAL NOT NULL DEFAULT 0"),
+        ]:
+            columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+            if column not in columns:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
         connection.execute(
             "INSERT OR IGNORE INTO projects(id,name,parent_id,created_at,owner_id) VALUES(?,?,?,?,?)",
             ("inbox", "待读收件箱", None, now(), OWNER_ID),
         )
+    # Separate commit: translation tables reference the already-created library.
+    from . import translations
+    translations.init_db()
 
 
 def get_project(project_id: str) -> dict:
@@ -105,7 +119,7 @@ def get_paper(paper_id: str) -> dict:
             "SELECT pp.* FROM project_papers pp JOIN projects p ON pp.project_id=p.id WHERE pp.paper_id=? AND p.owner_id=? ORDER BY pp.updated_at DESC",
             (paper_id, OWNER_ID),
         )]
-        result["has_translation"] = bool(result["translated_filename"])
+        result["has_translation"] = bool(result["translated_filename"] or result["active_translation_run_id"])
     return result
 
 
@@ -131,6 +145,9 @@ def paper_asset_path(paper: dict, side: str = "original") -> Path:
     """Resolve the immutable file belonging to one metadata snapshot."""
     if side not in {"original", "translation"}:
         raise HTTPException(422, "PDF 栏位必须为 original 或 translation")
+    if side == "translation" and paper.get("active_translation_run_id"):
+        from . import translations
+        return translations.merged_asset(paper)
     filename = paper["filename"] if side == "original" else paper["translated_filename"]
     if not filename:
         raise HTTPException(404, "译文尚未生成，可先上传同页数的译文 PDF")
@@ -147,6 +164,12 @@ def paper_path(paper_id: str, side: str = "original") -> Path:
 def source_sha(paper: dict, side: str) -> str:
     if side not in {"original", "translation"}:
         raise HTTPException(422, "PDF 栏位无效")
+    if side == "translation" and paper.get("active_translation_run_id"):
+        with db() as connection:
+            row = connection.execute("SELECT merged_sha FROM translation_runs WHERE id=? AND paper_id=?", (paper["active_translation_run_id"], paper["id"])).fetchone()
+        if not row or not row["merged_sha"]:
+            raise HTTPException(409, "译文仍在逐页生成，完整 PDF 尚未就绪")
+        return row["merged_sha"]
     value = paper["sha256"] if side == "original" else paper["translated_sha256"]
     if not value:
         raise HTTPException(409, "译文尚未生成")
@@ -209,14 +232,20 @@ def attach_translation(
     with db() as connection:
         connection.execute("BEGIN IMMEDIATE")
         current = connection.execute(
-            "SELECT translated_sha256 FROM papers WHERE id=? AND owner_id=?",
+            "SELECT translated_sha256,active_translation_run_id FROM papers WHERE id=? AND owner_id=?",
             (paper_id, OWNER_ID),
         ).fetchone()
         if not current:
             raise HTTPException(404, "论文不存在")
-        if expected_translation_sha is not _TRANSLATION_UNSET and current["translated_sha256"] != expected_translation_sha:
+        if expected_translation_sha is not _TRANSLATION_UNSET and (
+            current["translated_sha256"] != expected_translation_sha or current["active_translation_run_id"]
+        ):
             raise HTTPException(409, "译文已在任务运行期间更新，保留现有译文；请确认后重新提交翻译任务")
-        connection.execute("UPDATE papers SET translated_filename=?,translated_sha256=?,translated_page_count=? WHERE id=? AND owner_id=?", (stored, digest, info["page_count"], paper_id, OWNER_ID))
+        if current["active_translation_run_id"]:
+            run_id = current["active_translation_run_id"]
+            connection.execute("UPDATE translation_runs SET status='superseded',updated_at=? WHERE id=?", (now(), run_id))
+            connection.execute("UPDATE translation_pages SET status='cancelled',error='已由手动导入的译文替代',updated_at=? WHERE run_id=? AND status!='ready'", (now(), run_id))
+        connection.execute("UPDATE papers SET translated_filename=?,translated_sha256=?,translated_page_count=?,active_translation_run_id=NULL WHERE id=? AND owner_id=?", (stored, digest, info["page_count"], paper_id, OWNER_ID))
     return get_paper(paper_id)
 
 
@@ -225,12 +254,23 @@ def annotation_list(paper_id: str, project_id: str) -> list[dict]:
     paper = get_paper(paper_id)
     with db() as connection:
         rows = connection.execute("SELECT * FROM annotations WHERE paper_id=? AND project_id=? ORDER BY page,created_at,id", (paper_id, project_id)).fetchall()
+        active_run = paper.get("active_translation_run_id")
+        page_hashes = {row["page_no"]: row["asset_sha"] for row in connection.execute(
+            "SELECT page_no,asset_sha FROM translation_pages WHERE run_id=? AND status='ready'", (active_run,)
+        )} if active_run else {}
     result = []
     for row in rows:
         entry = dict(row)
         entry["rects"] = json.loads(entry["rects"])
-        current = paper["sha256"] if entry["side"] == "original" else paper["translated_sha256"]
-        entry["is_current"] = entry["source_sha"] == current
+        if entry["side"] == "original":
+            entry["is_current"] = entry["source_sha"] == paper["sha256"]
+        elif active_run:
+            entry["is_current"] = (
+                entry.get("translation_run_id") == active_run
+                and entry["source_sha"] == page_hashes.get(entry["page"])
+            )
+        else:
+            entry["is_current"] = not entry.get("translation_run_id") and entry["source_sha"] == paper["translated_sha256"]
         result.append(entry)
     return result
 

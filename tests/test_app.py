@@ -1,6 +1,6 @@
 """Integrated application boundaries and true-PDF bootstrap."""
 from fastapi.testclient import TestClient
-from app import core
+from app import core, imports, jobs
 from app.main import app
 
 
@@ -15,6 +15,11 @@ def test_bootstrap_reader_and_same_origin(tmp_path, monkeypatch):
         paper = papers[0]
         assert paper['page_count'] == paper['translated_page_count'] == 2
         assert client.get(f"/read/{paper['id']}?project=inbox").status_code == 200
+        manifest = client.get(f"/api/papers/{paper['id']}/page-manifest").json()
+        assert [p['page'] for p in manifest['pages']] == [1, 2]
+        translated = client.get(f"/api/papers/{paper['id']}/translation-pages").json()
+        assert translated['mode'] == 'manual'
+        assert all(p['status'] == 'ready' for p in translated['pages'])
         for side in ['original', 'translation']:
             page = client.get(f"/api/papers/{paper['id']}/pages/1", params={'side': side}).json()
             assert page['has_text'] and page['source_sha']
@@ -29,3 +34,45 @@ def test_bootstrap_reader_and_same_origin(tmp_path, monkeypatch):
         assert client.post('/api/projects', json={'name':'blocked'}, headers={'Origin':'https://untrusted.example'}).status_code == 403
         assert client.post('/api/projects', json={'name':'allowed'}, headers={'Origin':'http://testserver'}).status_code == 201
         assert client.get('/data/paperstudio.sqlite3').status_code == 404
+
+
+def test_import_and_discovery_routes_share_application_lifecycle(tmp_path, monkeypatch):
+    """A fresh installed app can import, parse and read before AI is configured."""
+    import json
+    import fitz
+    monkeypatch.setattr(core, 'DATA_DIR', tmp_path)
+    monkeypatch.setenv('PAPERSTUDIO_SEED_DEMO', '0')
+    for key in ('AI_BASE_URL', 'AI_MODEL', 'AI_API_KEY', 'SEARCH_PROVIDER', 'SEARXNG_BASE_URL', 'BRAVE_API_KEY'):
+        monkeypatch.delenv(key, raising=False)
+    # Advance the durable queue explicitly so this verifies the HTTP contract
+    # without depending on thread timing or any external model/network service.
+    monkeypatch.setattr(imports, 'start_worker', imports._STOP.clear)
+    monkeypatch.setattr(jobs, 'start_worker', jobs._STOP.clear)
+    with fitz.open() as document:
+        for number in range(2):
+            page = document.new_page()
+            page.insert_text((60, 80), f'Original page {number + 1}: evidence for the method.')
+        content = document.tobytes()
+    with TestClient(app) as client:
+        config = client.get('/api/discovery/config').json()
+        assert config['web_search']['configured'] is False
+        assert client.get('/api/discovery/search', params={'q': 'document retrieval', 'scope': 'web'}).status_code == 409
+        response = client.post('/api/imports/file',
+            files={'file': ('paper.pdf', content, 'application/pdf')},
+            data={'project_id': 'inbox', 'processing': json.dumps({'parse': True, 'brief_modes': ['abstract']})})
+        assert response.status_code == 202, response.text
+        plan = response.json()
+        paper_id = plan['paper_id']
+        assert client.get(f'/api/papers/{paper_id}/file').content == content
+        assert imports.run_once()  # Parse all pages.
+        parsed = client.get(f'/api/papers/{paper_id}/parsed').json()
+        assert len(parsed['pages']) == 2 and '[PDF 第 2 页]' in parsed['fulltext']
+        assert imports.run_once()  # Missing model blocks only its own step.
+        settled = client.get(f"/api/imports/{plan['id']}").json()
+        assert settled['status'] == 'blocked'
+        assert [step['status'] for step in settled['steps']] == ['succeeded', 'succeeded', 'blocked']
+        position = client.patch(f'/api/papers/{paper_id}/reading', json={
+            'project_id': 'inbox', 'status': 'reading', 'last_page': 2, 'page_offset': 0.43})
+        assert position.status_code == 200 and position.json()['page_offset'] == 0.43
+        for path in ('workspace.css', 'reader-continuous.css', 'app.js', 'reader.js'):
+            assert client.get('/static/' + path).status_code == 200

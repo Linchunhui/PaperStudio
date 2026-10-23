@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -142,7 +143,19 @@ def _source_payload(payload: dict) -> tuple[str, dict]:
         content = json.dumps(payload["annotation"], ensure_ascii=False, indent=2)
         coverage = {"scope": "selected-annotation", "annotation_id": payload["annotation"]["id"], "visual_evidence_verified": False}
     else:
-        content, coverage = extract_fulltext(core.paper_path(payload["paper_id"]))
+        # Import jobs load this module too; keep the optional cache import lazy.
+        from . import imports
+        try:
+            cached = imports.get_cached_fulltext(payload["source_sha"])
+        except sqlite3.OperationalError:
+            # The standalone core/jobs API can run without the import pipeline.
+            cached = None
+        if cached:
+            content, coverage = cached["fulltext"], dict(cached["coverage"])
+            if len(content) < 100 or coverage.get("text_pages", 0) == 0:
+                raise ExecutionError("PDF 缺少可用文本层。请先提供 OCR 后的 PDF；当前不会将扫描图像冒充已读取的全文。")
+        else:
+            content, coverage = extract_fulltext(core.paper_path(payload["paper_id"]))
         coverage["scope"] = "pdf-extracted-text"
     return content, coverage
 
@@ -206,6 +219,28 @@ def run_text(payload: dict, cancelled, progress) -> tuple[str, dict]:
     return banner + "\n\n" + answer, coverage
 
 
+def run_translation_page(payload: dict, page_number: int, cancelled, progress) -> bytes:
+    """Run the existing layout-preserving adapter on a real one-page PDF.
+
+    No token stream is presented as a rendered page: callers publish only the
+    returned, validated PDF. Splitting trades cross-page semantic context for
+    first-page availability; the app surfaces that limitation in the result.
+    """
+    if cancelled():
+        raise Cancelled()
+    root = core.DATA_DIR / "translation-work"
+    root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="page-", dir=root) as temp:
+        path = Path(temp) / "source.pdf"
+        with pdf.PDF_LOCK, fitz.open(core.paper_path(payload["paper_id"])) as source, fitz.open() as single:
+            if not 1 <= page_number <= len(source):
+                raise ExecutionError("翻译页码超出原 PDF 范围")
+            single.insert_pdf(source, from_page=page_number - 1, to_page=page_number - 1)
+            single.save(path)
+        page_payload = {**payload, "page_count": 1, "translation_page": page_number, "_translation_input_path": str(path)}
+        return run_translation(page_payload, cancelled, progress)
+
+
 def run_translation(payload: dict, cancelled, progress) -> bytes:
     cfg = settings()
     executable = translation_executable()
@@ -226,7 +261,8 @@ def run_translation(payload: dict, cancelled, progress) -> bytes:
             file.write(config_text)
         out = folder / "out"
         out.mkdir()
-        command = [executable, "--config", str(config), "--files", str(core.paper_path(payload["paper_id"])), "--output", str(out), "--no-dual"]
+        input_path = payload.get("_translation_input_path") or str(core.paper_path(payload["paper_id"]))
+        command = [executable, "--config", str(config), "--files", input_path, "--output", str(out), "--no-dual"]
         progress("BabelDOC 正在生成单语译文 PDF", {"scope": "pdf-translation", "visual_evidence_verified": False})
         started = time.monotonic()
         # Do not retain subprocess output: provider errors can contain credentials

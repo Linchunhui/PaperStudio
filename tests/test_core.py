@@ -219,3 +219,115 @@ def test_two_translation_jobs_with_same_empty_baseline_cannot_both_win(client, m
     assert sorted(status for status, _ in results) == [200, 409]
     winner_sha = next(sha for status, sha in results if status == 200)
     assert core.get_paper(paper["id"])["translated_sha256"] == winner_sha
+
+
+def _progressive_run(paper):
+    run_id = core.uid()
+    with core.db() as connection:
+        connection.execute(
+            "INSERT INTO translation_runs(id,paper_id,job_id,source_sha,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+            (run_id, paper["id"], core.uid(), paper["sha256"], "running", core.now(), core.now()),
+        )
+        connection.execute("UPDATE papers SET active_translation_run_id=? WHERE id=?", (run_id, paper["id"]))
+        for page in range(1, paper["page_count"] + 1):
+            connection.execute(
+                "INSERT INTO translation_pages(run_id,page_no,status,updated_at) VALUES(?,?,'queued',?)",
+                (run_id, page, core.now()),
+            )
+    return run_id
+
+
+def _ready_page(run_id, page_no, text):
+    content = make_pdf(text, pages=1)
+    digest = hashlib.sha256(content).hexdigest()
+    filename = core._store_pdf(content, digest)
+    with core.db() as connection:
+        connection.execute("UPDATE translation_pages SET status='ready',asset_sha=?,filename=? WHERE run_id=? AND page_no=?", (digest, filename, run_id, page_no))
+    return digest
+
+
+def test_page_manifest_and_continuous_reading_position(client):
+    paper = upload(client, make_pdf(rotated=True, cropped=True))
+    manifest = client.get(f"/api/papers/{paper['id']}/page-manifest").json()
+    assert manifest["source_sha"] == paper["sha256"]
+    assert len(manifest["pages"]) == 2
+    assert manifest["pages"][1] == {"page": 2, "width": 660, "height": 460, "rotation": 90}
+    assert all("text" not in page for page in manifest["pages"])
+    url = f"/api/papers/{paper['id']}/reading"
+    response = client.patch(url, json={"project_id": "inbox", "status": "reading", "last_page": 2, "page_offset": .625})
+    assert response.status_code == 200 and response.json()["page_offset"] == .625
+    assert client.patch(url, json={"project_id": "inbox", "status": "read"}).json()["page_offset"] == .625
+    assert client.patch(url, json={"project_id": "inbox", "status": "read", "last_page": 1}).json()["page_offset"] == 0
+    assert client.patch(url, json={"project_id": "inbox", "status": "read", "page_offset": 1.1}).status_code == 422
+
+
+def test_progressive_ready_page_is_readable_and_anchor_survives_later_page(client):
+    paper = upload(client)
+    run_id = _progressive_run(paper)
+    sha = _ready_page(run_id, 1, "First translated page")
+    url = f"/api/papers/{paper['id']}"
+    first = client.get(url + "/pages/1?side=translation").json()
+    assert first["source_sha"] == sha and first["translation_run_id"] == run_id and first["page"] == 1
+    assert client.get(first["svg_url"]).status_code == 200
+    assert client.get(url + "/pages/2?side=translation").status_code == 409
+    assert client.get(url + "/file?side=translation").status_code == 409
+    manifest = client.get(url + "/translation-pages").json()
+    assert manifest["active_run_id"] == run_id and manifest["mode"] == "progressive"
+    assert [page["status"] for page in manifest["pages"]] == ["ready", "queued"]
+    note = annotate(client, paper, side="translation", source_sha=sha, translation_run_id=run_id)
+    assert note.status_code == 201, note.text
+    assert annotate(client, paper, side="translation", source_sha=sha).status_code == 409
+    assert annotate(client, paper, side="translation", source_sha=sha, translation_run_id=core.uid()).status_code == 409
+    _ready_page(run_id, 2, "Second translated page")
+    assert core.get_paper(paper["id"])["translated_sha256"] is None
+    assert client.get(url + "/annotations?project_id=inbox").json()[0]["is_current"] is True
+    assert client.get(first["svg_url"]).status_code == 200
+    second = client.get(url + "/pages/2?side=translation").json()
+    assert second["page"] == 2 and "Second translated page" in "".join(item["text"] for item in second["text"])
+
+
+def test_manual_translation_supersedes_run_but_preserves_historical_page_asset(client):
+    paper = upload(client)
+    run_id = _progressive_run(paper)
+    sha = _ready_page(run_id, 1, "Page ready before manual import")
+    url = f"/api/papers/{paper['id']}"
+    old_page = client.get(url + "/pages/1?side=translation").json()
+    assert annotate(client, paper, side="translation", source_sha=sha, translation_run_id=run_id).status_code == 201
+    response = client.post(url + "/translation", files={"file": ("manual.pdf", make_pdf("Human version"), "application/pdf")})
+    assert response.status_code == 200 and response.json()["active_translation_run_id"] is None
+    assert client.get(url + "/translation-pages").json()["mode"] == "manual"
+    with core.db() as connection:
+        assert connection.execute("SELECT status FROM translation_runs WHERE id=?", (run_id,)).fetchone()["status"] == "superseded"
+        assert [r["status"] for r in connection.execute("SELECT status FROM translation_pages WHERE run_id=? ORDER BY page_no", (run_id,))] == ["ready", "cancelled"]
+    assert client.get(url + "/annotations?project_id=inbox").json()[0]["is_current"] is False
+    assert client.get(old_page["svg_url"]).status_code == 200
+    assert annotate(client, paper, side="translation", source_sha=sha, translation_run_id=run_id).status_code == 409
+    other = upload(client, make_pdf("Unrelated PDF"))
+    assert client.get(f"/api/papers/{other['id']}/pages/1.svg?side=translation&v={sha}").status_code == 409
+
+
+def test_additive_migration_keeps_v01_papers_manual_translation_notes_and_reading(client):
+    paper = upload(client)
+    manual = core.attach_translation(paper["id"], make_pdf("Existing manual translation"))
+    original_note = annotate(client, paper).json()
+    manual_note = annotate(client, paper, side="translation", source_sha=manual["translated_sha256"]).json()
+    client.patch(f"/api/papers/{paper['id']}/reading", json={"project_id": "inbox", "status": "read", "last_page": 2})
+    # Recreate the v0.1 shape while retaining actual records and original bytes.
+    with core.db() as connection:
+        connection.execute("ALTER TABLE annotations DROP COLUMN translation_run_id")
+        connection.execute("ALTER TABLE project_papers DROP COLUMN page_offset")
+        connection.execute("ALTER TABLE papers DROP COLUMN active_translation_run_id")
+        connection.execute("DROP TABLE translation_pages")
+        connection.execute("DROP TABLE translation_runs")
+    core.init_db()
+    core.init_db()  # The migration is idempotent.
+    restored = core.get_paper(paper["id"])
+    assert restored["sha256"] == paper["sha256"]
+    assert restored["translated_sha256"] == manual["translated_sha256"]
+    assert restored["active_translation_run_id"] is None
+    notes = core.annotation_list(paper["id"], "inbox")
+    assert {n["id"] for n in notes} == {original_note["id"], manual_note["id"]}
+    assert all(n["is_current"] for n in notes)
+    membership = core.require_membership(paper["id"], "inbox")
+    assert (membership["status"], membership["last_page"], membership["page_offset"]) == ("read", 2, 0)
+    assert client.get(f"/api/papers/{paper['id']}/pages/2?side=translation").status_code == 200

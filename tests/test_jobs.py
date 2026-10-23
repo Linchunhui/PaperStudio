@@ -13,9 +13,9 @@ from app.core_routes import router as core_router
 from app.jobs_routes import router as jobs_router
 
 
-def make_pdf(text="A small paper with a method, evidence and limitations."):
+def make_pdf(text="A small paper with a method, evidence and limitations.", pages=2):
     with fitz.open() as doc:
-        for index in range(2):
+        for index in range(pages):
             page = doc.new_page()
             page.insert_text((60, 80), f"Page {index + 1}: {text}")
         return doc.tobytes()
@@ -146,6 +146,26 @@ def test_overlong_source_is_rejected_without_call(client, monkeypatch):
     assert not called and result["result_markdown"] is None
 
 
+def test_text_jobs_reuse_a_fulltext_cache_without_reparsing(client, monkeypatch):
+    from app import imports
+    paper = upload(client)
+    content, coverage = ai.extract_fulltext(core.paper_path(paper["id"]))
+    seen = []
+
+    def cached(source_sha):
+        assert source_sha == paper["sha256"]
+        return {"fulltext": content, "coverage": coverage}
+
+    monkeypatch.setattr(imports, "get_cached_fulltext", cached)
+    monkeypatch.setattr(ai, "extract_fulltext", lambda *_: pytest.fail("Cached PDF was parsed again"))
+    monkeypatch.setattr(ai, "complete", lambda system, source, cfg: seen.append(source) or "基于全文文本缓存。[PDF 第 1 页]")
+    job = submit(client, paper)
+    assert jobs.run_one()
+    result = jobs.get_job(job["id"])
+    assert result["status"] == "succeeded"
+    assert content in seen[0] and result["coverage"]["total_pages"] == 2
+
+
 def test_cancel_discards_late_ai_output_and_retry_works(client, monkeypatch):
     paper = upload(client)
     job = submit(client, paper)
@@ -205,7 +225,6 @@ def test_optional_translation_is_explicit_and_config_is_not_in_argv(client, monk
     monkeypatch.setattr(ai, "translation_executable", lambda: "/opt/babeldoc")
     monkeypatch.setenv("AI_API_KEY", "SECRET_NOT_IN_ARGV")
     observed = {}
-    pdf_data = core.paper_path(paper["id"]).read_bytes()
     class Process:
         returncode = 0
         def __init__(self, argv, **kwargs):
@@ -218,7 +237,11 @@ def test_optional_translation_is_explicit_and_config_is_not_in_argv(client, monk
             assert configuration["no-dual"] and not configuration["no-mono"]
             assert kwargs["shell"] is False
             out = Path(argv[argv.index("--output") + 1])
-            (out / "paper.zh.mono.pdf").write_bytes(pdf_data)
+            # Each invocation really receives exactly one original PDF page.
+            source = Path(argv[argv.index("--files") + 1])
+            with fitz.open(source) as document:
+                assert len(document) == 1
+            (out / "paper.zh.mono.pdf").write_bytes(source.read_bytes())
         def poll(self):
             return 0
     monkeypatch.setattr(ai.subprocess, "Popen", Process)
@@ -228,7 +251,10 @@ def test_optional_translation_is_explicit_and_config_is_not_in_argv(client, monk
     assert result["status"] == "succeeded", result
     assert "SECRET_NOT_IN_ARGV" not in " ".join(observed["argv"])
     assert not observed["config_path"].exists()
-    assert core.get_paper(paper["id"])["translated_page_count"] == 2
+    with fitz.open(core.paper_path(paper["id"], "translation")) as document:
+        assert len(document) == 2
+    manifest = client.get(f"/api/papers/{paper['id']}/translation-pages").json()
+    assert all(page["status"] == "ready" for page in manifest["pages"])
 
 
 @pytest.mark.parametrize("has_previous_translation", [False, True])
@@ -241,7 +267,7 @@ def test_translation_preserves_manual_revision_imported_during_execution(client,
     job = submit(client, paper, "translate")
     assert json.loads(jobs._row(job["id"])["payload"])["translation_base_sha"] == baseline
     manual_pdf = make_pdf("Manual revision must survive a late background result.")
-    automatic_pdf = make_pdf("A background translation based on the older snapshot.")
+    automatic_pdf = make_pdf("A background translation based on the older snapshot.", pages=1)
     observed = {}
 
     def translate_while_user_imports(payload, cancelled, progress):
@@ -271,7 +297,9 @@ def test_translation_preserves_manual_revision_imported_during_execution(client,
     monkeypatch.setattr(ai, "run_translation", lambda *args: automatic_pdf)
     jobs.run_one()
     assert jobs.get_job(new_job["id"])["status"] == "succeeded"
-    assert core.paper_path(paper["id"], "translation").read_bytes() == automatic_pdf
+    with fitz.open(core.paper_path(paper["id"], "translation")) as document:
+        assert len(document) == 2
+        assert all("background translation" in page.get_text() for page in document)
 
 
 def test_stale_queued_translation_does_not_call_provider(client, monkeypatch):

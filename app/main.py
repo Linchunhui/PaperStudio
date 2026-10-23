@@ -7,24 +7,32 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from . import core, jobs
+from . import core, jobs, imports, discovery
 from .core_routes import router as core_router
 from .jobs_routes import router as jobs_router
+from .import_routes import router as import_router
+from .discovery_routes import router as discovery_router
 
 
 @asynccontextmanager
 async def lifespan(app):
     core.init_db()
     jobs.init_jobs()
+    imports.init_imports()
+    discovery.init_discovery()
     if os.environ.get('PAPERSTUDIO_SEED_DEMO', '1') == '1':
         from .sample import seed_sample
         seed_sample()
     jobs.start_worker()
-    yield
-    jobs.stop_worker()
+    imports.start_worker()
+    try:
+        yield
+    finally:
+        imports.stop_worker()
+        jobs.stop_worker()
 
 
-app = FastAPI(title='PaperStudio', version='0.1.0', lifespan=lifespan)
+app = FastAPI(title='PaperStudio', version='0.2.0', lifespan=lifespan)
 allowed_hosts = [v.strip() for v in os.environ.get('PAPERSTUDIO_ALLOWED_HOSTS', 'localhost,127.0.0.1,[::1],testserver,terminal.local').split(',') if v.strip()]
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
@@ -49,6 +57,8 @@ async def local_boundary(request: Request, call_next):
 
 app.include_router(core_router)
 app.include_router(jobs_router)
+app.include_router(import_router)
+app.include_router(discovery_router)
 
 
 @app.get('/api/sources')

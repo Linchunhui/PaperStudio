@@ -108,3 +108,16 @@ def extract_pages(path: Path) -> list[str]:
             return [page.get_text("text", sort=True) for page in doc]
     except Exception as exc:
         raise HTTPException(422, "无法提取 PDF 正文") from exc
+
+
+def page_manifest(path: Path) -> list[dict]:
+    """Read dimensions only; do not decode every page's text or SVG."""
+    try:
+        with PDF_LOCK, fitz.open(path) as doc:
+            return [
+                {"page": index + 1, "width": page.rect.width,
+                 "height": page.rect.height, "rotation": page.rotation}
+                for index, page in enumerate(doc)
+            ]
+    except Exception as exc:
+        raise HTTPException(422, "无法读取 PDF 页面清单") from exc
