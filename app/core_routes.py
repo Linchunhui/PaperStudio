@@ -228,6 +228,12 @@ def translation_pages(paper_id: str):
     return translations.manifest(paper_id)
 
 
+@router.get("/papers/{paper_id}/pages/{page_number}/alignment")
+def paragraph_alignment(paper_id: str, page_number: int):
+    from . import translations
+    return translations.page_alignment(paper_id, page_number)
+
+
 def _page_asset(paper: dict, page_number: int, side: Side, version: str | None = None) -> dict:
     if page_number < 1 or page_number > paper["page_count"]:
         raise HTTPException(404, "论文页码不存在")

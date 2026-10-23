@@ -6,6 +6,7 @@ artifact, and never changes when a later page becomes available.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import fitz
@@ -31,11 +32,13 @@ def init_db():
         CREATE INDEX IF NOT EXISTS translation_run_paper ON translation_runs(paper_id);
         CREATE TABLE IF NOT EXISTS translation_pages (
             run_id TEXT NOT NULL REFERENCES translation_runs(id), page_no INTEGER NOT NULL,
-            status TEXT NOT NULL, asset_sha TEXT, filename TEXT, error TEXT,
+            status TEXT NOT NULL, asset_sha TEXT, filename TEXT, error TEXT, alignment_json TEXT,
             updated_at TEXT NOT NULL, PRIMARY KEY(run_id,page_no)
         );
         CREATE INDEX IF NOT EXISTS translation_page_asset ON translation_pages(asset_sha);
         """)
+        if "alignment_json" not in {row["name"] for row in con.execute("PRAGMA table_info(translation_pages)")}:
+            con.execute("ALTER TABLE translation_pages ADD COLUMN alignment_json TEXT")
 
 
 def create_run(con, payload: dict, job_id: str, run_id: str):
@@ -106,17 +109,22 @@ def start_page(run_id: str, job_id: str, page: int):
         con.execute("UPDATE translation_pages SET status='running',error=NULL,updated_at=? WHERE run_id=? AND page_no=? AND status!='ready'", (core.now(), run_id, page))
 
 
-def publish_page(run_id: str, job_id: str, page: int, content: bytes):
+def publish_page(run_id: str, job_id: str, page: int, content: bytes, *, alignment: dict | None = None):
     info = pdf.inspect_pdf(content)
     if info["page_count"] != 1:
         raise HTTPException(422, "逐页翻译必须返回单页 PDF；该页未发布，可重试")
     digest = hashlib.sha256(content).hexdigest()
     filename = core._store_pdf(content, digest)
+    # Only the compact, derived map belongs to this immutable page artifact.
+    # The private BabelDOC tracker (including model prompts) is never stored.
+    alignment_json = json.dumps(alignment, ensure_ascii=False) if alignment is not None else None
+    if alignment_json and len(alignment_json.encode()) > 2 * 1024 * 1024:
+        alignment_json = json.dumps({"status": "unavailable", "reason": "alignment_too_large", "paragraphs": []})
     with core.db() as con:
         con.execute("BEGIN IMMEDIATE")
         _active(con, run_id, job_id)
         # Cancellation/manual replacement and this update serialize on SQLite.
-        changed = con.execute("UPDATE translation_pages SET status='ready',asset_sha=?,filename=?,error=NULL,updated_at=? WHERE run_id=? AND page_no=? AND status='running'", (digest, filename, core.now(), run_id, page)).rowcount
+        changed = con.execute("UPDATE translation_pages SET status='ready',asset_sha=?,filename=?,alignment_json=?,error=NULL,updated_at=? WHERE run_id=? AND page_no=? AND status='running'", (digest, filename, alignment_json, core.now(), run_id, page)).rowcount
         if not changed:
             raise Stopped()
 
@@ -204,3 +212,36 @@ def manifest(paper_id: str) -> dict:
     if paper["translated_filename"]:
         return {"active_run_id": None, "job_id": None, "mode": "manual", "status": "succeeded", "download_ready": True, "pages": [{"page": n, "status": "ready", "source_sha": paper["translated_sha256"], "translation_run_id": None, "error": None} for n in range(1, paper["page_count"] + 1)]}
     return {"active_run_id": None, "job_id": None, "mode": "none", "status": "none", "download_ready": False, "pages": []}
+
+
+def page_alignment(paper_id: str, page: int) -> dict:
+    """Read the active page's map and identity from one SQLite snapshot."""
+    with core.db() as con:
+        con.execute("BEGIN")
+        paper = con.execute("SELECT * FROM papers WHERE id=? AND owner_id=?", (paper_id, core.OWNER_ID)).fetchone()
+        if not paper:
+            raise HTTPException(404, "论文不存在")
+        if not 1 <= page <= paper["page_count"]:
+            raise HTTPException(404, "论文页码不存在")
+        run_id = paper["active_translation_run_id"]
+        result = {"page": page, "original_sha": paper["sha256"], "translation_sha": None,
+                  "translation_run_id": run_id, "status": "pending", "reason": "translation_pending", "paragraphs": []}
+        if not run_id:
+            if paper["translated_sha256"]:
+                result.update(translation_sha=paper["translated_sha256"], status="unavailable", reason="no_tracking")
+            return result
+        row = con.execute("SELECT t.*,r.source_sha FROM translation_pages t JOIN translation_runs r ON r.id=t.run_id WHERE t.run_id=? AND t.page_no=? AND r.paper_id=?", (run_id, page, paper_id)).fetchone()
+        if not row or row["source_sha"] != paper["sha256"]:
+            raise HTTPException(409, "译文版本已变化，请刷新段落对应信息")
+        if row["status"] != "ready":
+            if row["status"] in {"failed", "cancelled"}:
+                result.update(status="unavailable", reason="translation_" + row["status"])
+            return result
+        result.update(translation_sha=row["asset_sha"], status="unavailable", reason="no_tracking")
+        if row["alignment_json"]:
+            mapping = json.loads(row["alignment_json"])
+            # Source identity is bound at publication, never taken from JSON.
+            result.update({key: mapping[key] for key in ("status", "reason", "paragraphs", "matched_count", "unmatched_count") if key in mapping})
+            if result["status"] in {"ready", "partial"} and "reason" not in mapping:
+                result.pop("reason", None)
+        return result

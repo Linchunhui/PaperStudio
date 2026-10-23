@@ -76,6 +76,18 @@ export BRAVE_API_KEY=your-server-side-subscription-token
 
 批注支持原文/译文选词、句子、跨行选区、个人理解与摘要、颜色、跳回引用、编辑、删除和 Markdown 导出。每个项目分别保存笔记、阅读状态和位置；切换编辑会保护未保存草稿。
 
+### 双向段落联动
+
+阅读器默认开启段落联动。点击原文或译文中的段落，对应一侧会高亮，必要时滚动到可见位置。划选词句时，个人笔记仍保存精确选区；另一侧只高亮对应段落，不强行逐词匹配。跨多个段落的选区会联动多个对应段落。
+
+若译文尚未就绪，先保留原文选择，页面完成后再关联。用户已经滚离原段落时，不会被后台结果突然拉回。两侧联动高亮是独立视觉层，不覆盖浏览器文本选区、笔记高亮或未保存草稿；可通过“段落联动”开关关闭。
+
+段落关系来自 BabelDOC 的实际 `translate_tracking.json`，再到两侧 PDF 文字层进行唯一定位，坐标按旋转/裁剪后的页面归一化。不会按位置或段落序号猜配，不额外调用模型。无法定位、重复文本歧义、复杂公式等情况会提示未对齐；能对齐的其他段落仍可联动。
+
+此能力适用于升级后新生成且含有效翻译记录的译文。旧译文、人工上传译文或未输出记录的 BabelDOC 版本会提示缺少段落对应信息；可重新发起逐页翻译生成新记录。升级后的任务不会直接复用旧版已完成的翻译任务。人工替换译文或切换翻译批次时，旧联动映射失效，历史笔记保留。
+
+缺少对应记录时可点击“重新翻译”显式生成新译文，这会重新调用翻译模型。已有同配置翻译任务正在进行时会复用该任务，避免重复提交。
+
 ## 逐页翻译
 
 可直接导入与原文页数一致的单语译文 PDF，或者配置 BabelDOC 运行真实后台翻译。
@@ -127,10 +139,13 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt
 node --check web/app.js
 node --check web/reader.js
 node tests/test_reader.mjs
+node tests/test_paragraph_reader.mjs
 node tests/test_workspace.mjs
 ```
 
 代码按 `app/discovery*`（发现）、`app/import*`（导入）、`app/core*`（项目/论文/批注）、`app/jobs.py`（AI任务）、`app/translations.py`（逐页译文）及 `web/`（前端）组织。API 文档运行后位于 `/docs`；验收范围与未完成的现场联调见 [验证记录](docs/validation.md)。
+
+`app/alignment.py` 负责从实际翻译记录生成段落映射。BabelDOC 工作目录与记录在单页处理结束后清理，只随该页保存精简映射，不保留记录中的完整模型 prompt；追踪文件缺失或损坏不阻止有效译文 PDF 阅读。
 
 `data/` 保存 SQLite、PDF、解析缓存与任务产物，已被 Git 忽略。备份时停止服务后复制整个目录。`PAPERSTUDIO_DATA_DIR` 可修改路径。升级会执行兼容旧数据的数据库初始化/列迁移，升级前仍建议备份。
 

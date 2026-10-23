@@ -15,6 +15,7 @@ class JobRequest(BaseModel):
     kind: Literal["guide", "brief", "selection-summary", "notes-summary", "translate"]
     mode: Literal["abstract", "cards", "summary", "all"] = "cards"
     annotation_id: str | None = Field(default=None, max_length=100)
+    force: bool = Field(default=False, strict=True)
 
 
 @router.get("/capabilities")

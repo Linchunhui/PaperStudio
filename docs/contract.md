@@ -29,6 +29,7 @@
 | `GET /papers/{id}/file` | 原始 PDF 字节；`side=original/translation` |
 | `GET /papers/{id}/page-manifest` | 全文页面尺寸，用于连续滚动占位 |
 | `GET /papers/{id}/translation-pages` | 翻译批次与逐页状态；未完成时也可读取就绪页 |
+| `GET /papers/{id}/pages/{n}/alignment` | 当前页的原文/译文段落对应、归一化矩形和版本身份 |
 | `GET /papers/{id}/pages/{n}` | 页面尺寸、文字坐标、版本与 SVG URL |
 | `GET /papers/{id}/pages/{n}.svg` | PDF 页面直接生成的 SVG |
 | `GET/POST /papers/{id}/annotations` | 当前项目批注列表或创建批注 |
@@ -87,6 +88,36 @@
 `translation-pages` 的 `mode` 为 `none/manual/progressive`；逐页状态为 `queued/running/ready/failed/cancelled`。页面成为 `ready` 后可通过原有页面接口取得 SVG 和透明文字层。未就绪页返回 HTTP 409。全部完成之前，整本译文下载返回 409，而就绪页一直可读。
 
 译文批注需携带页面元数据中的 `source_sha` 和 `translation_run_id`。人工上传译文后，旧后台批次失活；服务会拒绝基于旧页面新建批注，历史笔记保留。失败或中断任务重试沿用原批次与已成功页面，只处理其余页面。轮询清单只更新对应页，不重新载入整本文档。
+
+### 段落对应
+
+`GET /papers/{id}/pages/{n}/alignment` 返回：
+
+```json
+{
+  "page": 1,
+  "original_sha": "原文整本 PDF 的 SHA256",
+  "translation_sha": "当前页译文 PDF 的 SHA256",
+  "translation_run_id": "当前翻译批次",
+  "status": "ready",
+  "paragraphs": [{
+    "id": "稳定的段落对应 ID",
+    "original": {"text": "原文段落", "rects": [{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.04}]},
+    "translation": {"text": "译文段落", "rects": [{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.04}]},
+    "method": "babeldoc-tracking"
+  }]
+}
+```
+
+这是阅读辅助映射，不是个人批注。`ready/partial` 含可用段落；`pending` 表示译文尚未完成；`unavailable` 表示没有可靠映射。没有就绪译文时 `translation_sha` 为 null；已有人工译文时为整本译文哈希、`translation_run_id` 为 null，当前返回 `no_tracking`。失效页码或论文返回 404。
+
+映射与就绪 PDF 在同一事务中发布，并绑定原文哈希、翻译批次、原页码和该页译文哈希。重试保留成功页映射；人工替换后只返回新版本的信息。前端按这些身份核验响应，避免迟到请求把旧段落套入新页面。
+
+BabelDOC 以显式 `--working-dir` 输出实际翻译记录，不开启会修改可见 PDF 的 `--debug`。仅两侧实际文本均可唯一定位的记录会转成归一化矩形；没有几何位置猜配或额外模型调用。原始追踪日志只存在于单页临时目录，完成后清理；数据库只保存 `alignment_json` 精简结果。追踪格式失败不会使有效 PDF 翻译失败。
+
+旧版已完成任务没有追踪信息，升级后重新提交会使用新的翻译管线版本，不复用旧完成任务。旧失败任务重试仍保留其已成功页；如需为旧成功页补对应信息，应发起新的逐页翻译。
+
+`POST /jobs` 的 `force: true` 仅适用于 `kind: "translate"`：显式绕过已成功任务的复用，生成新批次；已有相同配置的排队/执行任务仍会复用，以避免重复点击触发重复模型调用。默认 `force: false` 保持原有幂等行为。
 
 ## 发现结果
 

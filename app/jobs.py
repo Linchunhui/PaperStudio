@@ -9,6 +9,8 @@ from fastapi import HTTPException
 
 from . import ai, core, translations
 
+TRANSLATION_PIPELINE_VERSION = "page-pdf-paragraph-tracking-v1"
+
 _STOP = threading.Event()
 _WAKE = threading.Event()
 _STATE_LOCK = threading.RLock()
@@ -91,9 +93,11 @@ def _configuration(kind: str):
         raise HTTPException(409, str(exc)) from None
 
 
-def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", annotation_id: str | None = None) -> dict:
+def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", annotation_id: str | None = None, force: bool = False) -> dict:
     if kind not in KINDS or mode not in MODES:
         raise HTTPException(422, "未知任务类型或输出模式")
+    if force and kind != "translate":
+        raise HTTPException(422, "只有翻译任务支持显式重新生成")
     _membership(paper_id, project_id)
     cfg = _configuration(kind)
     paper = core.get_paper(paper_id)
@@ -108,6 +112,9 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
         payload["translation_base_sha"] = paper["translated_sha256"]
         payload["translation_base_run_id"] = paper.get("active_translation_run_id")
         payload["start_page"] = core.require_membership(paper_id, project_id)["last_page"]
+        # Upgraded translations need new tracking metadata; do not silently
+        # reuse a completed page-only job created by the previous pipeline.
+        payload["translation_pipeline_version"] = TRANSLATION_PIPELINE_VERSION
     if kind in {"selection-summary", "notes-summary"}:
         notes = core.annotation_list(paper_id, project_id)
         if kind == "selection-summary":
@@ -127,7 +134,10 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
         candidates = con.execute("SELECT * FROM jobs WHERE dedupe_key=? AND status IN ('queued','running','succeeded') AND owner_id='local' ORDER BY created_at DESC", (digest,)).fetchall()
         current = con.execute("SELECT active_translation_run_id FROM papers WHERE id=?", (paper_id,)).fetchone()
         old = next((r for r in candidates if kind != "translate" or (current["active_translation_run_id"] and json.loads(r["payload"]).get("translation_run_id") == current["active_translation_run_id"])), None)
-        if old:
+        # Explicit regeneration bypasses completed translations, for example
+        # after enabling tracking in BabelDOC. Repeated clicks still coalesce
+        # into the already active job instead of starting duplicate model work.
+        if old and (not force or old["status"] in {"queued", "running"}):
             result = public_job(dict(old))
             result["reused"] = True
             return result
@@ -274,11 +284,13 @@ def _run_translation_pages(job_id: str, payload: dict, progress):
         translations.start_page(run_id, job_id, page)
         progress(f"正在翻译第 {page} / {payload['page_count']} 页 · 已完成页可先阅读", translations.counts(run_id))
         try:
-            content = ai.run_translation_page(payload, page, lambda: _cancelled(job_id), lambda stage, _: progress(f"第 {page} 页 · {stage}", translations.counts(run_id)))
+            translated = ai.run_translation_page(payload, page, lambda: _cancelled(job_id), lambda stage, _: progress(f"第 {page} 页 · {stage}", translations.counts(run_id)))
+            content = translated.content if isinstance(translated, ai.PageTranslation) else translated
+            alignment = translated.alignment if isinstance(translated, ai.PageTranslation) else None
             with _STATE_LOCK:
                 if _cancelled(job_id):
                     raise ai.Cancelled()
-                translations.publish_page(run_id, job_id, page, content)
+                translations.publish_page(run_id, job_id, page, content, alignment=alignment)
         except (ai.Cancelled, translations.Stopped):
             raise
         except (ai.ConfigurationError, ai.ExecutionError, HTTPException) as exc:

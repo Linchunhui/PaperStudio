@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 import ipaddress
 import json
 import os
@@ -33,6 +34,19 @@ class ExecutionError(RuntimeError):
 
 class Cancelled(RuntimeError):
     pass
+
+
+@dataclass
+class BabeldocOutput:
+    content: bytes
+    tracking: dict | None = None
+    tracking_reason: str = "no_tracking"
+
+
+@dataclass
+class PageTranslation:
+    content: bytes
+    alignment: dict
 
 
 def _positive_int(name: str, default: int, low: int, high: int) -> int:
@@ -219,7 +233,7 @@ def run_text(payload: dict, cancelled, progress) -> tuple[str, dict]:
     return banner + "\n\n" + answer, coverage
 
 
-def run_translation_page(payload: dict, page_number: int, cancelled, progress) -> bytes:
+def run_translation_page(payload: dict, page_number: int, cancelled, progress) -> PageTranslation:
     """Run the existing layout-preserving adapter on a real one-page PDF.
 
     No token stream is presented as a rendered page: callers publish only the
@@ -238,10 +252,45 @@ def run_translation_page(payload: dict, page_number: int, cancelled, progress) -
             single.insert_pdf(source, from_page=page_number - 1, to_page=page_number - 1)
             single.save(path)
         page_payload = {**payload, "page_count": 1, "translation_page": page_number, "_translation_input_path": str(path)}
-        return run_translation(page_payload, cancelled, progress)
+        result = run_translation(page_payload, cancelled, progress)
+        # Byte-only adapters remain readable, but cannot invent a paragraph map.
+        content = result.content if isinstance(result, BabeldocOutput) else result
+        mapping = {"status": "unavailable", "reason": getattr(result, "tracking_reason", "no_tracking"), "paragraphs": []}
+        if isinstance(result, BabeldocOutput) and result.tracking is not None:
+            if cancelled():
+                raise Cancelled()
+            translated_path = Path(temp) / "translated.pdf"
+            translated_path.write_bytes(content)
+            try:
+                from .alignment import build_alignment
+                mapping = build_alignment(core.paper_path(payload["paper_id"]), page_number, translated_path, result.tracking)
+            except Exception:
+                # Alignment is optional metadata. A valid PDF must remain
+                # readable if an upstream tracking format changes.
+                mapping = {"status": "unavailable", "reason": "alignment_failed", "paragraphs": []}
+        if cancelled():
+            raise Cancelled()
+        return PageTranslation(content, mapping)
 
 
-def run_translation(payload: dict, cancelled, progress) -> bytes:
+def _read_translation_tracking(directory: Path) -> tuple[dict | None, str]:
+    """Read a bounded private tracker; prompts never enter persisted results."""
+    try:
+        candidates = [p for p in directory.rglob("translate_tracking.json")
+                      if p.is_file() and not p.is_symlink() and p.resolve().is_relative_to(directory.resolve())]
+        if len(candidates) != 1:
+            return None, "no_tracking"
+        with candidates[0].open("rb") as handle:
+            raw = handle.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024:
+            return None, "tracking_too_large"
+        result = json.loads(raw)
+        return (result, "") if isinstance(result, dict) else (None, "invalid_tracking")
+    except (OSError, ValueError, RecursionError):
+        return None, "invalid_tracking"
+
+
+def run_translation(payload: dict, cancelled, progress) -> BabeldocOutput:
     cfg = settings()
     executable = translation_executable()
     if not executable:
@@ -261,8 +310,12 @@ def run_translation(payload: dict, cancelled, progress) -> bytes:
             file.write(config_text)
         out = folder / "out"
         out.mkdir()
+        tracking_dir = folder / "tracking"
+        tracking_dir.mkdir()
         input_path = payload.get("_translation_input_path") or str(core.paper_path(payload["paper_id"]))
-        command = [executable, "--config", str(config), "--files", input_path, "--output", str(out), "--no-dual"]
+        # Explicit working-dir retains translate_tracking.json without --debug,
+        # which would draw diagnostic rectangles into the visible PDF itself.
+        command = [executable, "--config", str(config), "--files", input_path, "--output", str(out), "--working-dir", str(tracking_dir), "--no-dual"]
         progress("BabelDOC 正在生成单语译文 PDF", {"scope": "pdf-translation", "visual_evidence_verified": False})
         started = time.monotonic()
         # Do not retain subprocess output: provider errors can contain credentials
@@ -286,7 +339,8 @@ def run_translation(payload: dict, cancelled, progress) -> bytes:
             with pdf.PDF_LOCK, fitz.open(stream=result, filetype="pdf") as doc:
                 if len(doc) != payload["page_count"]:
                     raise ExecutionError("译文页数与原文不同；首版按页一一对应，未自动关联此译文。")
-            return result
+            tracking, reason = _read_translation_tracking(tracking_dir)
+            return BabeldocOutput(result, tracking, reason)
         finally:
             if process.poll() is None:
                 process.terminate()
