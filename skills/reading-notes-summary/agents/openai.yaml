@@ -1,0 +1,4 @@
+interface:
+  display_name: "读后笔记总结"
+  short_description: "汇总当前项目的划线和笔记，区分论文证据、个人判断与待核验问题"
+  default_prompt: "使用 $reading-notes-summary 整理当前项目的阅读笔记，保留证据与疑问。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "论文导读"
+  short_description: "按研究问题组织阅读路线，帮助理解论文方法与证据之间的关系"
+  default_prompt: "使用 $paper-guide 为当前论文建立问题、机制与证据的阅读路线。"

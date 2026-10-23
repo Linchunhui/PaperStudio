@@ -1,0 +1,4 @@
+interface:
+  display_name: "论文对照翻译"
+  short_description: "保持术语、公式、图表和页码对应，生成可核验的双语阅读材料"
+  default_prompt: "使用 $paper-translate 翻译当前论文，保留版式、公式与页码对应。"

@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "id": "paper-brief",
+      "name": "论文摘要与粗读",
+      "description": "基于论文全文生成精简中文摘要、卡片式粗读或连贯的总结式粗读。用于明确要求论文摘要、粗读、速读、短卡、精简解读，或调用 paper-brief 的场景。摘要交代背景、问题、前人思路与缺口、本文机制和结果；粗读保留关键原图、必要公式及白话解释，并提炼可借鉴的消融结论。篇幅灵活，先讲清机制，再删冗余。不承担论文发现、研究雷达或系列演进综述。",
+      "job_kinds": [
+        "brief",
+        "selection-summary"
+      ],
+      "modes": [
+        "abstract",
+        "cards",
+        "summary",
+        "all"
+      ],
+      "entrypoint": "paper-brief/SKILL.md",
+      "references": [
+        "paper-brief/references/abstract.md",
+        "paper-brief/references/evidence.md",
+        "paper-brief/references/html-delivery.md",
+        "paper-brief/references/rough-read.md"
+      ]
+    },
+    {
+      "id": "paper-guide",
+      "name": "论文导读",
+      "description": "为单篇论文建立中文阅读路线与机制导读，说明研究问题、前作缺口、关键操作、训练与推理以及应核对的实验证据。用于论文导读、读前导航、方法讲解和阅读器中的导读任务。基于当前论文版本与已提供的全文文本，不承担论文发现、研究雷达、全文翻译或跨论文综述。",
+      "job_kinds": [
+        "guide"
+      ],
+      "modes": [
+        "guide"
+      ],
+      "entrypoint": "paper-guide/SKILL.md",
+      "references": [
+        "paper-guide/references/guide.md"
+      ]
+    },
+    {
+      "id": "paper-translate",
+      "name": "论文对照翻译",
+      "description": "为论文原文提供准确中文翻译与术语约束，保留论证、公式、数值、图表编号和引用。用于全文对照翻译、段落翻译及 BabelDOC 翻译任务的质量规则；保持原始 PDF 与译文版本、页码和版式对应，不承担摘要、导读或读后笔记总结。",
+      "job_kinds": [
+        "translate"
+      ],
+      "modes": [
+        "translation"
+      ],
+      "entrypoint": "paper-translate/SKILL.md",
+      "references": [
+        "paper-translate/references/translation.md"
+      ]
+    },
+    {
+      "id": "reading-notes-summary",
+      "name": "读后笔记总结",
+      "description": "基于当前项目中一篇论文的划线、句子批注与个人笔记生成中文读后总结，区分论文摘录、个人判断、疑问和后续行动，保留页码与笔记来源。用于读完总结、汇总笔记、复习提纲或阅读器的笔记总结任务。仅依据所给笔记，不冒充全文摘要，不混入其他项目或论文。",
+      "job_kinds": [
+        "notes-summary"
+      ],
+      "modes": [
+        "notes-summary"
+      ],
+      "entrypoint": "reading-notes-summary/SKILL.md",
+      "references": [
+        "reading-notes-summary/references/notes.md"
+      ]
+    }
+  ]
+}

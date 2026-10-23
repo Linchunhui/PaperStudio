@@ -1,0 +1,4 @@
+interface:
+  display_name: "论文摘要与粗读"
+  short_description: "基于全文讲清研究背景、方法机制、实验结果与可借鉴的消融结论"
+  default_prompt: "使用 $paper-brief 为当前论文生成基于全文证据的中文摘要与粗读。"

@@ -1,0 +1,2149 @@
+{
+  "meta": {
+    "title": "重点论文发布来源清单",
+    "registeredAt": "2026-10-21",
+    "total": 144,
+    "priorityCounts": {
+      "P0": 29,
+      "P1": 91,
+      "P2": 24
+    },
+    "groupCounts": {
+      "cn-industry": 30,
+      "cn-academic": 26,
+      "global-industry": 47,
+      "global-academic": 36,
+      "collaboration": 5
+    },
+    "verificationStatus": "unverified",
+    "note": "来源由用户提供，保留原名称、优先级与研究方向；未重新核查来源现状。不同团队分别记录，优先级不代表机构排名。"
+  },
+  "groups": {
+    "cn-industry": "国内企业、企业团队及独立研究院",
+    "cn-academic": "国内高校及相关科研团队（含港台）",
+    "global-industry": "海外企业、独立研究组织及开源项目",
+    "global-academic": "海外高校及合作研究机构",
+    "collaboration": "跨机构合作项目"
+  },
+  "sources": [
+    {
+      "id": "org-001",
+      "number": 1,
+      "priority": "P0",
+      "name": "北京智源BAAI",
+      "topics": [
+        "检索",
+        "多模态",
+        "生成"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-002",
+      "number": 2,
+      "priority": "P0",
+      "name": "百度ERNIE与文档模型",
+      "topics": [
+        "LLM",
+        "OCR"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-003",
+      "number": 3,
+      "priority": "P0",
+      "name": "DeepSeek",
+      "topics": [
+        "推理",
+        "代码",
+        "OCR"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-004",
+      "number": 4,
+      "priority": "P0",
+      "name": "美团LongCat",
+      "topics": [
+        "LLM",
+        "多模态"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-005",
+      "number": 5,
+      "priority": "P0",
+      "name": "MiniMax",
+      "topics": [
+        "LLM",
+        "多模态",
+        "语音"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-006",
+      "number": 6,
+      "priority": "P0",
+      "name": "月之暗面/Kimi",
+      "topics": [
+        "LLM",
+        "Agent",
+        "长上下文"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-007",
+      "number": 7,
+      "priority": "P0",
+      "name": "面壁/清华/OpenBMB",
+      "topics": [
+        "端侧",
+        "多模态",
+        "语音"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-008",
+      "number": 8,
+      "priority": "P0",
+      "name": "阿里通义/Qwen",
+      "topics": [
+        "LLM",
+        "多模态",
+        "推理",
+        "代码"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-009",
+      "number": 9,
+      "priority": "P0",
+      "name": "字节Seed",
+      "topics": [
+        "LLM",
+        "Agent",
+        "多模态"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-010",
+      "number": 10,
+      "priority": "P0",
+      "name": "上海人工智能实验室/书生",
+      "topics": [
+        "LLM",
+        "多模态",
+        "文档"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-011",
+      "number": 11,
+      "priority": "P0",
+      "name": "阶跃星辰",
+      "topics": [
+        "多模态",
+        "推理",
+        "OCR"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-012",
+      "number": 12,
+      "priority": "P0",
+      "name": "腾讯混元",
+      "topics": [
+        "LLM",
+        "OCR",
+        "视频",
+        "3D"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-013",
+      "number": 13,
+      "priority": "P0",
+      "name": "智谱/Z.ai/GLM",
+      "topics": [
+        "LLM",
+        "Agent",
+        "OCR"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-014",
+      "number": 14,
+      "priority": "P1",
+      "name": "阿里通义/NLP与DeepResearch",
+      "topics": [
+        "检索",
+        "Agent"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-015",
+      "number": 15,
+      "priority": "P1",
+      "name": "通义音频/QwenAudio（原FunAudioLLM）",
+      "topics": [
+        "语音"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-016",
+      "number": 16,
+      "priority": "P1",
+      "name": "华为诺亚方舟实验室",
+      "topics": [
+        "模型效率",
+        "视觉",
+        "NLP"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-017",
+      "number": 17,
+      "priority": "P1",
+      "name": "IDEA研究院",
+      "topics": [
+        "视觉",
+        "检测",
+        "NLP"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-018",
+      "number": 18,
+      "priority": "P1",
+      "name": "科大讯飞/星火",
+      "topics": [
+        "语音",
+        "推理",
+        "数学"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-019",
+      "number": 19,
+      "priority": "P1",
+      "name": "蚂蚁inclusionAI",
+      "topics": [
+        "LLM",
+        "扩散语言模型",
+        "多模态"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-020",
+      "number": 20,
+      "priority": "P1",
+      "name": "快手Kolors/可灵",
+      "topics": [
+        "图像",
+        "视频"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-021",
+      "number": 21,
+      "priority": "P1",
+      "name": "商汤SenseNova",
+      "topics": [
+        "多模态",
+        "生成"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-022",
+      "number": 22,
+      "priority": "P1",
+      "name": "昆仑万维Skywork",
+      "topics": [
+        "奖励模型",
+        "推理",
+        "多模态"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-023",
+      "number": 23,
+      "priority": "P1",
+      "name": "腾讯ARC",
+      "topics": [
+        "视觉",
+        "生成",
+        "3D"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-024",
+      "number": 24,
+      "priority": "P1",
+      "name": "通义MAI",
+      "topics": [
+        "图像生成",
+        "GUI Agent"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-025",
+      "number": 25,
+      "priority": "P1",
+      "name": "通义万相/Wan",
+      "topics": [
+        "视频生成"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-026",
+      "number": 26,
+      "priority": "P1",
+      "name": "小米MiMo",
+      "topics": [
+        "推理",
+        "RL",
+        "端侧"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-027",
+      "number": 27,
+      "priority": "P2",
+      "name": "零一万物",
+      "topics": [
+        "LLM"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-028",
+      "number": 28,
+      "priority": "P2",
+      "name": "百川智能",
+      "topics": [
+        "LLM"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-029",
+      "number": 29,
+      "priority": "P2",
+      "name": "小红书HiLab / dots studio",
+      "topics": [
+        "LLM"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-030",
+      "number": 30,
+      "priority": "P2",
+      "name": "vivo AI",
+      "topics": [
+        "端侧",
+        "LLM"
+      ],
+      "group": "cn-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-031",
+      "number": 31,
+      "priority": "P0",
+      "name": "香港大学HKUDS",
+      "topics": [
+        "RAG",
+        "图学习",
+        "Agent"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-032",
+      "number": 32,
+      "priority": "P0",
+      "name": "香港科大XLang",
+      "topics": [
+        "Agent",
+        "GUI",
+        "代码"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-033",
+      "number": 33,
+      "priority": "P1",
+      "name": "中央研究院IIS/YOLO团队",
+      "topics": [
+        "视觉",
+        "目标检测"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-034",
+      "number": 34,
+      "priority": "P1",
+      "name": "香港中文大学MMLab",
+      "topics": [
+        "视觉",
+        "多模态"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-035",
+      "number": 35,
+      "priority": "P1",
+      "name": "复旦大学NLP组",
+      "topics": [
+        "LLM",
+        "NLP"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-036",
+      "number": 36,
+      "priority": "P1",
+      "name": "哈尔滨工业大学SCIR",
+      "topics": [
+        "NLP",
+        "幻觉",
+        "可靠性"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-037",
+      "number": 37,
+      "priority": "P1",
+      "name": "香港大学MMLab",
+      "topics": [
+        "视觉",
+        "多模态",
+        "3D"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-038",
+      "number": 38,
+      "priority": "P1",
+      "name": "香港科大HKUST Audio",
+      "topics": [
+        "语音",
+        "音频生成"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-039",
+      "number": 39,
+      "priority": "P1",
+      "name": "华中科技大学HUSTVL",
+      "topics": [
+        "视觉",
+        "状态空间模型"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-040",
+      "number": 40,
+      "priority": "P1",
+      "name": "南京大学MCG",
+      "topics": [
+        "视频理解",
+        "多模态"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-041",
+      "number": 41,
+      "priority": "P1",
+      "name": "OpenMOSS/SII/复旦合作团队",
+      "topics": [
+        "LLM",
+        "语音",
+        "多模态"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-042",
+      "number": 42,
+      "priority": "P1",
+      "name": "北京大学PKU-Alignment",
+      "topics": [
+        "对齐",
+        "安全",
+        "RL"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-043",
+      "number": 43,
+      "priority": "P1",
+      "name": "北京大学YuanGroup",
+      "topics": [
+        "多模态",
+        "视频",
+        "生成"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-044",
+      "number": 44,
+      "priority": "P1",
+      "name": "人民大学AIBox",
+      "topics": [
+        "LLM",
+        "检索",
+        "推荐"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-045",
+      "number": 45,
+      "priority": "P1",
+      "name": "人民大学GSAI-ML/LLaDA团队",
+      "topics": [
+        "扩散语言模型"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-046",
+      "number": 46,
+      "priority": "P1",
+      "name": "上海交大Language Intelligence Lab",
+      "topics": [
+        "NLP",
+        "多模态"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-047",
+      "number": 47,
+      "priority": "P1",
+      "name": "清华大学KEG",
+      "topics": [
+        "知识图谱",
+        "Agent",
+        "LLM"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-048",
+      "number": 48,
+      "priority": "P1",
+      "name": "清华大学MIG",
+      "topics": [
+        "视觉",
+        "目标检测",
+        "效率"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-049",
+      "number": 49,
+      "priority": "P1",
+      "name": "清华大学机器学习组/THUML",
+      "topics": [
+        "机器学习",
+        "时序",
+        "生成"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-050",
+      "number": 50,
+      "priority": "P1",
+      "name": "清华大学THUNLP",
+      "topics": [
+        "LLM",
+        "知识",
+        "多模态"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-051",
+      "number": 51,
+      "priority": "P1",
+      "name": "国科大/中科院自动化所",
+      "topics": [
+        "OCR",
+        "文档",
+        "视觉"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-052",
+      "number": 52,
+      "priority": "P1",
+      "name": "中国科大计算机/多模态团队",
+      "topics": [
+        "检索",
+        "多模态",
+        "推理"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-053",
+      "number": 53,
+      "priority": "P1",
+      "name": "浙江大学ZJUNLP",
+      "topics": [
+        "知识",
+        "LLM",
+        "Agent"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-054",
+      "number": 54,
+      "priority": "P2",
+      "name": "北京邮电大学GAMMA",
+      "topics": [
+        "图学习",
+        "检索"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-055",
+      "number": 55,
+      "priority": "P2",
+      "name": "香港科大KnowComp",
+      "topics": [
+        "NLP",
+        "知识推理"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-056",
+      "number": 56,
+      "priority": "P2",
+      "name": "中科院深圳先进技术研究院",
+      "topics": [
+        "视觉",
+        "视频",
+        "机器人"
+      ],
+      "group": "cn-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-057",
+      "number": 57,
+      "priority": "P0",
+      "name": "Allen Institute for AI/Ai2",
+      "topics": [
+        "开放LLM",
+        "科学文献",
+        "数据"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-058",
+      "number": 58,
+      "priority": "P0",
+      "name": "Anthropic/Claude",
+      "topics": [
+        "Agent",
+        "对齐",
+        "可解释性"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-059",
+      "number": 59,
+      "priority": "P0",
+      "name": "Datalab",
+      "topics": [
+        "OCR",
+        "文档解析"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-060",
+      "number": 60,
+      "priority": "P0",
+      "name": "Google/Google DeepMind",
+      "topics": [
+        "通用AI",
+        "多模态",
+        "机器人"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-061",
+      "number": 61,
+      "priority": "P0",
+      "name": "Jina AI",
+      "topics": [
+        "检索",
+        "重排"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-062",
+      "number": 62,
+      "priority": "P0",
+      "name": "LightOn",
+      "topics": [
+        "OCR",
+        "检索"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-063",
+      "number": 63,
+      "priority": "P0",
+      "name": "Meta/FAIR",
+      "topics": [
+        "LLM",
+        "视觉",
+        "科学AI"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-064",
+      "number": 64,
+      "priority": "P0",
+      "name": "Microsoft Research",
+      "topics": [
+        "LLM",
+        "Agent",
+        "文档",
+        "检索"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-065",
+      "number": 65,
+      "priority": "P0",
+      "name": "Mistral AI",
+      "topics": [
+        "LLM",
+        "代码",
+        "语音"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-066",
+      "number": 66,
+      "priority": "P0",
+      "name": "Nomic AI",
+      "topics": [
+        "检索",
+        "Embedding"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-067",
+      "number": 67,
+      "priority": "P0",
+      "name": "NVIDIA Research",
+      "topics": [
+        "LLM",
+        "机器人",
+        "世界模型",
+        "效率"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-068",
+      "number": 68,
+      "priority": "P0",
+      "name": "OpenAI",
+      "topics": [
+        "通用AI",
+        "Agent",
+        "对齐"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-069",
+      "number": 69,
+      "priority": "P0",
+      "name": "Sentence Transformers",
+      "topics": [
+        "检索",
+        "Embedding"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-070",
+      "number": 70,
+      "priority": "P1",
+      "name": "AI21 Labs",
+      "topics": [
+        "混合架构",
+        "推理"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-071",
+      "number": 71,
+      "priority": "P1",
+      "name": "Amazon/AWS Science",
+      "topics": [
+        "基础模型",
+        "时序",
+        "检索"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-072",
+      "number": 72,
+      "priority": "P1",
+      "name": "Answer.AI",
+      "topics": [
+        "编码器",
+        "检索"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-073",
+      "number": 73,
+      "priority": "P1",
+      "name": "Apple ML Research",
+      "topics": [
+        "端侧",
+        "视觉",
+        "多模态"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-074",
+      "number": 74,
+      "priority": "P1",
+      "name": "Black Forest Labs",
+      "topics": [
+        "图像生成"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-075",
+      "number": 75,
+      "priority": "P1",
+      "name": "BRIA AI",
+      "topics": [
+        "图像编辑"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-076",
+      "number": 76,
+      "priority": "P1",
+      "name": "Cohere Labs",
+      "topics": [
+        "多语言",
+        "检索",
+        "LLM"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-077",
+      "number": 77,
+      "priority": "P1",
+      "name": "EleutherAI",
+      "topics": [
+        "开放模型",
+        "评测"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-078",
+      "number": 78,
+      "priority": "P1",
+      "name": "Hugging Face研究团队",
+      "topics": [
+        "小模型",
+        "多模态",
+        "机器人"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-079",
+      "number": 79,
+      "priority": "P1",
+      "name": "IBM Research/Granite",
+      "topics": [
+        "企业模型",
+        "文档",
+        "检索"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-080",
+      "number": 80,
+      "priority": "P1",
+      "name": "Kyutai",
+      "topics": [
+        "语音",
+        "实时多模态"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-081",
+      "number": 81,
+      "priority": "P1",
+      "name": "LAION",
+      "topics": [
+        "多模态",
+        "数据"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-082",
+      "number": 82,
+      "priority": "P1",
+      "name": "LG AI Research",
+      "topics": [
+        "推理",
+        "多语言"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-083",
+      "number": 83,
+      "priority": "P1",
+      "name": "Liquid AI",
+      "topics": [
+        "小模型",
+        "端侧",
+        "架构"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-084",
+      "number": 84,
+      "priority": "P1",
+      "name": "Lightricks/LTX",
+      "topics": [
+        "视频生成"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-085",
+      "number": 85,
+      "priority": "P1",
+      "name": "Mixedbread",
+      "topics": [
+        "检索",
+        "重排"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-086",
+      "number": 86,
+      "priority": "P1",
+      "name": "NAVER/CLOVA",
+      "topics": [
+        "LLM",
+        "OCR",
+        "文档"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-087",
+      "number": 87,
+      "priority": "P1",
+      "name": "Nous Research",
+      "topics": [
+        "后训练",
+        "推理"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-088",
+      "number": 88,
+      "priority": "P1",
+      "name": "Physical Intelligence",
+      "topics": [
+        "机器人",
+        "VLA"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-089",
+      "number": 89,
+      "priority": "P1",
+      "name": "Runway",
+      "topics": [
+        "视频",
+        "世界模型"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-090",
+      "number": 90,
+      "priority": "P1",
+      "name": "Sakana AI",
+      "topics": [
+        "进化",
+        "自动研究"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-091",
+      "number": 91,
+      "priority": "P1",
+      "name": "Salesforce AI Research",
+      "topics": [
+        "多模态",
+        "Agent"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-092",
+      "number": 92,
+      "priority": "P1",
+      "name": "Snowflake AI",
+      "topics": [
+        "检索",
+        "企业模型"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-093",
+      "number": 93,
+      "priority": "P1",
+      "name": "Stability AI",
+      "topics": [
+        "图像",
+        "视频",
+        "音频"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-094",
+      "number": 94,
+      "priority": "P1",
+      "name": "TII/Falcon",
+      "topics": [
+        "LLM",
+        "架构"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-095",
+      "number": 95,
+      "priority": "P1",
+      "name": "Together AI",
+      "topics": [
+        "训练",
+        "推理",
+        "开放模型"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-096",
+      "number": 96,
+      "priority": "P1",
+      "name": "xAI",
+      "topics": [
+        "LLM",
+        "推理"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-097",
+      "number": 97,
+      "priority": "P1",
+      "name": "Zyphra",
+      "topics": [
+        "混合架构",
+        "语音"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-098",
+      "number": 98,
+      "priority": "P2",
+      "name": "Arcee AI",
+      "topics": [
+        "小模型",
+        "后训练"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-099",
+      "number": 99,
+      "priority": "P2",
+      "name": "Genmo",
+      "topics": [
+        "视频生成"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-100",
+      "number": 100,
+      "priority": "P2",
+      "name": "Nari Labs",
+      "topics": [
+        "语音"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-101",
+      "number": 101,
+      "priority": "P2",
+      "name": "Rakuten AI",
+      "topics": [
+        "日语",
+        "LLM"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-102",
+      "number": 102,
+      "priority": "P2",
+      "name": "SB Intuitions",
+      "topics": [
+        "日语",
+        "语音"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-103",
+      "number": 103,
+      "priority": "P2",
+      "name": "Upstage",
+      "topics": [
+        "LLM",
+        "文档"
+      ],
+      "group": "global-industry",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-104",
+      "number": 104,
+      "priority": "P0",
+      "name": "Princeton NLP",
+      "topics": [
+        "LLM",
+        "Agent",
+        "代码"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-105",
+      "number": 105,
+      "priority": "P1",
+      "name": "UC Berkeley BAIR/RAIL",
+      "topics": [
+        "机器人",
+        "RL",
+        "多模态"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-106",
+      "number": 106,
+      "priority": "P1",
+      "name": "UC Berkeley NLP",
+      "topics": [
+        "NLP",
+        "RAG",
+        "开放模型"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-107",
+      "number": 107,
+      "priority": "P1",
+      "name": "CMU Machine Learning/LTI",
+      "topics": [
+        "LLM",
+        "序列模型",
+        "NLP"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-108",
+      "number": 108,
+      "priority": "P1",
+      "name": "EPFL VILAB",
+      "topics": [
+        "多模态",
+        "视觉",
+        "生成"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-109",
+      "number": 109,
+      "priority": "P1",
+      "name": "ETH Zurich CVL",
+      "topics": [
+        "视觉",
+        "图文表征"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-110",
+      "number": 110,
+      "priority": "P1",
+      "name": "Freiburg AutoML/TabPFN团队",
+      "topics": [
+        "表格基础模型",
+        "AutoML"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-111",
+      "number": 111,
+      "priority": "P1",
+      "name": "Harvard/BWH Mahmood Lab",
+      "topics": [
+        "医学视觉",
+        "多模态"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-112",
+      "number": 112,
+      "priority": "P1",
+      "name": "University of Helsinki NLP",
+      "topics": [
+        "翻译",
+        "多语言"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-113",
+      "number": 113,
+      "priority": "P1",
+      "name": "KAIST AI",
+      "topics": [
+        "LLM",
+        "评测",
+        "多模态"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-114",
+      "number": 114,
+      "priority": "P1",
+      "name": "MBZUAI",
+      "topics": [
+        "视觉",
+        "LLM",
+        "多模态"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-115",
+      "number": 115,
+      "priority": "P1",
+      "name": "MIT Han Lab",
+      "topics": [
+        "效率",
+        "压缩",
+        "多模态"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-116",
+      "number": 116,
+      "priority": "P1",
+      "name": "MIT Improbable AI",
+      "topics": [
+        "机器人",
+        "世界模型",
+        "生成"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-117",
+      "number": 117,
+      "priority": "P1",
+      "name": "NTU Singapore S-Lab",
+      "topics": [
+        "多模态",
+        "视觉"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-118",
+      "number": 118,
+      "priority": "P1",
+      "name": "NUS Show Lab",
+      "topics": [
+        "多模态理解生成"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-119",
+      "number": 119,
+      "priority": "P1",
+      "name": "Ohio State NLP",
+      "topics": [
+        "多模态",
+        "Agent",
+        "评测"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-120",
+      "number": 120,
+      "priority": "P1",
+      "name": "Oxford VGG",
+      "topics": [
+        "视觉",
+        "3D",
+        "生成"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-121",
+      "number": 121,
+      "priority": "P1",
+      "name": "Princeton Dao AI Lab",
+      "topics": [
+        "高效训练",
+        "注意力",
+        "SSM"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-122",
+      "number": 122,
+      "priority": "P1",
+      "name": "Stanford CRFM",
+      "topics": [
+        "基础模型",
+        "评测"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-123",
+      "number": 123,
+      "priority": "P1",
+      "name": "Stanford ILIAD",
+      "topics": [
+        "机器人",
+        "交互",
+        "VLA"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-124",
+      "number": 124,
+      "priority": "P1",
+      "name": "Stanford NLP",
+      "topics": [
+        "NLP",
+        "检索",
+        "推理"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-125",
+      "number": 125,
+      "priority": "P1",
+      "name": "SUTD/TinyLlama团队",
+      "topics": [
+        "小语言模型"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-126",
+      "number": 126,
+      "priority": "P1",
+      "name": "Swiss AI Initiative",
+      "topics": [
+        "开放LLM",
+        "多语言"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-127",
+      "number": 127,
+      "priority": "P1",
+      "name": "UC San Diego Hao AI Lab",
+      "topics": [
+        "模型系统",
+        "推理效率"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-128",
+      "number": 128,
+      "priority": "P1",
+      "name": "UT Austin RPL",
+      "topics": [
+        "机器人",
+        "VLA"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-129",
+      "number": 129,
+      "priority": "P1",
+      "name": "University of Washington NLP",
+      "topics": [
+        "开放LLM",
+        "RAG",
+        "评测"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-130",
+      "number": 130,
+      "priority": "P1",
+      "name": "UW-Madison Kangwook Lee Lab",
+      "topics": [
+        "多模态",
+        "学习理论"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-131",
+      "number": 131,
+      "priority": "P2",
+      "name": "Cambridge MLG",
+      "topics": [
+        "机器学习",
+        "概率",
+        "可靠性"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-132",
+      "number": 132,
+      "priority": "P2",
+      "name": "Cornell NLP",
+      "topics": [
+        "NLP",
+        "Agent"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-133",
+      "number": 133,
+      "priority": "P2",
+      "name": "ETH Zurich ASL",
+      "topics": [
+        "机器人",
+        "导航"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-134",
+      "number": 134,
+      "priority": "P2",
+      "name": "Mila",
+      "topics": [
+        "深度学习",
+        "RL",
+        "安全"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-135",
+      "number": 135,
+      "priority": "P2",
+      "name": "NYU CILVR",
+      "topics": [
+        "表示学习",
+        "世界模型"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-136",
+      "number": 136,
+      "priority": "P2",
+      "name": "UCL NLP",
+      "topics": [
+        "NLP",
+        "LLM",
+        "推理"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-137",
+      "number": 137,
+      "priority": "P2",
+      "name": "UCLA NLP",
+      "topics": [
+        "NLP",
+        "可靠性",
+        "推理"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-138",
+      "number": 138,
+      "priority": "P2",
+      "name": "UIUC NLP",
+      "topics": [
+        "NLP",
+        "LLM"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-139",
+      "number": 139,
+      "priority": "P2",
+      "name": "Vector Institute",
+      "topics": [
+        "基础模型",
+        "可靠性"
+      ],
+      "group": "global-academic",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-140",
+      "number": 140,
+      "priority": "P1",
+      "name": "Depth Anything团队",
+      "topics": [
+        "视觉",
+        "深度估计"
+      ],
+      "group": "collaboration",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-141",
+      "number": 141,
+      "priority": "P1",
+      "name": "LMMs-Lab",
+      "topics": [
+        "多模态",
+        "评测"
+      ],
+      "group": "collaboration",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-142",
+      "number": 142,
+      "priority": "P1",
+      "name": "OpenVLA",
+      "topics": [
+        "机器人",
+        "VLA"
+      ],
+      "group": "collaboration",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-143",
+      "number": 143,
+      "priority": "P2",
+      "name": "BigCode",
+      "topics": [
+        "代码模型"
+      ],
+      "group": "collaboration",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    },
+    {
+      "id": "org-144",
+      "number": 144,
+      "priority": "P2",
+      "name": "BigScience",
+      "topics": [
+        "LLM",
+        "数据"
+      ],
+      "group": "collaboration",
+      "registeredAt": "2026-10-21",
+      "verificationStatus": "unverified",
+      "url": null
+    }
+  ],
+  "channels": [
+    {
+      "id": "arxiv",
+      "name": "arXiv",
+      "type": "paper-platform",
+      "label": "论文平台",
+      "url": "https://arxiv.org/",
+      "status": "not-connected"
+    },
+    {
+      "id": "hf-papers",
+      "name": "Hugging Face Papers",
+      "type": "paper-platform",
+      "label": "论文平台",
+      "url": "https://huggingface.co/papers",
+      "status": "not-connected"
+    },
+    {
+      "id": "institutions",
+      "name": "机构与研究团队",
+      "type": "institution",
+      "label": "机构来源",
+      "url": null,
+      "status": "not-connected",
+      "count": 144
+    },
+    {
+      "id": "jiqizhixin",
+      "name": "机器之心",
+      "type": "media",
+      "label": "媒体线索",
+      "url": "https://www.jiqizhixin.com/",
+      "status": "not-connected"
+    },
+    {
+      "id": "qbitai",
+      "name": "量子位",
+      "type": "media",
+      "label": "媒体线索",
+      "url": "https://www.qbitai.com/",
+      "status": "not-connected"
+    }
+  ]
+}
