@@ -52,6 +52,11 @@ def public_job(row: dict) -> dict:
     result["skill_id"] = payload["skill"]["id"]
     result["skill_version"] = payload["skill"]["sha256"]
     result["translation_run_id"] = payload.get("translation_run_id")
+    if payload.get("kind") == "paragraph-translate":
+        result["page"] = payload["paragraph"]["page"]
+        result["block_id"] = payload["paragraph"]["id"]
+        result["skill_adapter"] = payload["skill"].get("adapter")
+        result["translation_model"] = payload["provider"]["model"]
     return result
 
 
@@ -93,7 +98,8 @@ def _configuration(kind: str):
         raise HTTPException(409, str(exc)) from None
 
 
-def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", annotation_id: str | None = None, force: bool = False) -> dict:
+def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", annotation_id: str | None = None, force: bool = False,
+            page: int | None = None, block_id: str | None = None, source_sha: str | None = None) -> dict:
     if kind not in KINDS or mode not in MODES:
         raise HTTPException(422, "未知任务类型或输出模式")
     if force and kind != "translate":
@@ -106,6 +112,16 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
     except ai.ConfigurationError as exc:
         raise HTTPException(409, str(exc)) from None
     payload = {"schema_version": 1, "paper_id": paper_id, "project_id": project_id, "paper_title": paper["title"], "source_sha": paper["sha256"], "page_count": paper["page_count"], "kind": kind, "mode": mode, "skill": skill, "provider": {"base_url": cfg["base_url"], "model": cfg["model"]}, "input_limits": {"max_input_chars": cfg["max_input_chars"], "max_output_tokens": cfg["max_output_tokens"]}}
+    if kind == "paragraph-translate":
+        from . import reading
+        payload["paragraph"] = reading.paragraph_snapshot(paper, page, block_id, source_sha)
+        payload["paragraph_prompt_version"] = reading.PROMPT_VERSION
+        payload["paragraph_translation_prompt"] = reading.TRANSLATION_SYSTEM
+        # The paragraph adapter runs a text-specific role, not the PDF layout
+        # instructions. Report the hash of the exact prompt actually executed.
+        payload["skill"] = {"id": "paper-translate", "adapter": "paragraph-text",
+                            "prompt": reading.TRANSLATION_SYSTEM,
+                            "sha256": hashlib.sha256(reading.TRANSLATION_SYSTEM.encode()).hexdigest()}
     if kind == "translate":
         # None is an explicit baseline: a first translation must not overwrite
         # a manually imported PDF that appeared after this job was enqueued.
@@ -211,10 +227,11 @@ def _progress(job_id: str, stage: str, coverage: dict):
         con.execute("UPDATE jobs SET stage=?,coverage=?,updated_at=? WHERE id=? AND status='running'", (stage, json.dumps(coverage, ensure_ascii=False), core.now(), job_id))
 
 
-def _claim() -> dict | None:
+def _claim(*, paragraphs_only: bool = False) -> dict | None:
     with _STATE_LOCK, core.db() as con:
         con.execute("BEGIN IMMEDIATE")
-        row = con.execute("SELECT * FROM jobs WHERE status='queued' AND owner_id='local' ORDER BY created_at,rowid LIMIT 1").fetchone()
+        condition = " AND kind='paragraph-translate'" if paragraphs_only else ""
+        row = con.execute("SELECT * FROM jobs WHERE status='queued' AND owner_id='local'" + condition + " ORDER BY CASE WHEN kind='paragraph-translate' THEN 0 ELSE 1 END,created_at,rowid LIMIT 1").fetchone()
         if not row:
             return None
         con.execute("UPDATE jobs SET status='running',stage='准备输入证据',attempt=attempt+1,updated_at=? WHERE id=?", (core.now(), row["id"]))
@@ -232,9 +249,9 @@ def _check_translation_baseline(payload: dict, paper: dict):
         raise HTTPException(409, "译文已在任务提交后更新，保留现有译文；请确认后重新提交翻译任务。")
 
 
-def run_one() -> bool:
+def run_one(*, paragraphs_only: bool = False) -> bool:
     """Execute one queued job; also used by deterministic integration tests."""
-    row = _claim()
+    row = _claim(paragraphs_only=paragraphs_only)
     if row is None:
         return False
     job_id, payload = row["id"], json.loads(row["payload"])
@@ -253,6 +270,13 @@ def run_one() -> bool:
             # BabelDOC is running.
             _check_translation_baseline(payload, core.get_paper(payload["paper_id"]))
             _run_translation_pages(job_id, payload, progress)
+        elif row["kind"] == "paragraph-translate":
+            from . import reading
+            answer, coverage = reading.run_translation(payload, lambda: _cancelled(job_id), progress)
+            with _STATE_LOCK:
+                if _cancelled(job_id):
+                    raise ai.Cancelled()
+                _finish(job_id, answer, coverage)
         else:
             answer, coverage = ai.run_text(payload, lambda: _cancelled(job_id), progress)
             with _STATE_LOCK:
@@ -279,6 +303,13 @@ def _run_translation_pages(job_id: str, payload: dict, progress):
     run_id = payload["translation_run_id"]
     pages = translations.pending_pages(run_id, job_id, payload.get("start_page", 1))
     for page in pages:
+        if _cancelled(job_id):
+            raise ai.Cancelled()
+        # A full book must not monopolize the only worker. Service a bounded
+        # number of explicitly requested paragraphs at each page boundary.
+        for _ in range(2):
+            if _cancelled(job_id) or not run_one(paragraphs_only=True):
+                break
         if _cancelled(job_id):
             raise ai.Cancelled()
         translations.start_page(run_id, job_id, page)

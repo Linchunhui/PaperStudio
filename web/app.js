@@ -30,7 +30,7 @@ export function memberships(paper) {
   return Object.entries(value).map(([project_id, data]) => ({project_id, ...data}));
 }
 export const statuses = {unread:'待读',reading:'在读',read:'已读'};
-export const jobLabels = {guide:'论文导读',brief:'论文摘要 / 粗读','selection-summary':'选区摘要','notes-summary':'读后笔记总结',translate:'全文翻译'};
+export const jobLabels = {guide:'论文导读',brief:'论文摘要 / 粗读','selection-summary':'选区摘要','notes-summary':'读后笔记总结',translate:'全文翻译','paragraph-translate':'段落翻译'};
 export const jobStatuses = {queued:'等待执行',running:'执行中',succeeded:'已完成',failed:'失败',cancelled:'已取消',interrupted:'执行中断'};
 export const icons = {
   book:'<svg viewBox="0 0 24 24"><path d="M3 4h7a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H3zM13 7a3 3 0 0 1 3-3h5v15h-4a4 4 0 0 0-4 2"/></svg>',
@@ -80,7 +80,7 @@ if (route) {
 
 async function mountWorkspace() {
   const params = new URLSearchParams(location.search);
-  const views = new Set(['discover','library','imports','sources','skills']);
+  const views = new Set(['discover','catalog','library','imports','sources','skills']);
   const stored = (key,fallback) => {try {const value=JSON.parse(localStorage.getItem(key));return value??fallback;} catch {return fallback;}};
   const remember = (key,value) => {try {localStorage.setItem(key,JSON.stringify(value));} catch {toast('浏览器无法保存偏好；论文和笔记仍保存在后端。');}};
   const selectedSources=stored('paperstudio-feed-sources',['hf','qbitai','jiqizhixin']);
@@ -90,6 +90,8 @@ async function mountWorkspace() {
     searchQuery:'', searchScope:'web', searchPage:1, discoveryMode:'feed', discoveryItems:[], discoveryStatuses:[], discoveryLoading:false, discoveryError:'', fetchedAt:null,
     interests:String(stored('paperstudio-interests','')), feedSources:new Set(Array.isArray(selectedSources)?selectedSources.filter(s=>['hf','qbitai','jiqizhixin'].includes(s)):['hf','qbitai','jiqizhixin']),
     imports:[], importError:'', importLoading:false,
+    catalogQuery:'',catalogYear:'',catalogSource:'all',catalogInstitution:'',catalogSort:'votes',catalogPage:1,catalogPageSize:24,
+    catalogItems:[],catalogTotal:0,catalogPages:0,catalogStats:null,catalogLoading:false,catalogError:'',catalogStatsError:'',catalogImporting:false,catalogHfWeek:'',catalogFeedback:'',catalogImportError:'',
     importer:{kind:'url',url:'',title:'',paperId:null,projectId:params.get('project')||'inbox',file:null,processing:{parse:true,translate:false,guide:false,brief_modes:[]}},
     importSubmitting:false, importMessage:'', importFailure:''
   };
@@ -100,7 +102,7 @@ async function mountWorkspace() {
   const modeNames={abstract:'精简摘要',cards:'卡片粗读',summary:'全文总结',all:'摘要与完整粗读'};
   const importStatuses={queued:'排队中',running:'处理中',succeeded:'已完成',partial:'部分完成',blocked:'等待配置',failed:'失败',cancelled:'已取消',interrupted:'已中断'};
   const stepNames={download:'下载 PDF',parse:'解析全文',translate:'逐页翻译',guide:'论文导读',brief:'论文粗读'};
-  let querySequence=0,discoverySequence=0,importsSequence=0,debounce,pollTimer,pageActive=true;
+  let querySequence=0,discoverySequence=0,importsSequence=0,catalogSequence=0,catalogController=null,debounce,pollTimer,pageActive=true;
   const dateText=value=>{if(!value)return '日期未提供';const d=new Date(value);return Number.isNaN(d.getTime())?String(value):d.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});};
   function projectPath(id) {
     const result=[],seen=new Set();let p=state.projects.find(x=>x.id===id);
@@ -123,7 +125,7 @@ async function mountWorkspace() {
     return (includeRoot?'<option value="">根目录</option>':'')+state.projects.filter(p=>!excludeId||!blocked.has(p.id)).map(p=>`<option value="${esc(p.id)}" ${p.id===selected?'selected':''}>${esc(projectPath(p.id))}</option>`).join('');
   }
   function sidebar(){
-    const nav=[['discover','搜索与推荐','search'],['library','我的论文库','book'],['imports','导入与任务','plus'],['sources','来源与关注','source'],['skills','Skills 与服务','spark']];
+    const nav=[['discover','搜索与推荐','search'],['catalog','论文索引','source'],['library','我的论文库','book'],['imports','导入与任务','plus'],['sources','来源与关注','source'],['skills','Skills 与服务','spark']];
     return `<aside class="workspace-sidebar"><a href="/" class="brand"><span class="brand-symbol">${icons.book}</span><span><strong>PaperStudio</strong><small>让阅读形成自己的脉络</small></span></a><div class="workspace-identity"><span class="avatar">私</span><div><strong>我的研究空间</strong><small>个人版 · 本机保存</small></div></div><nav aria-label="工作台导航">${nav.map(([key,name,icon])=>`<button class="nav-item ${state.view===key?'active':''}" data-view="${key}">${icons[icon]}${name}${key==='imports'?'<span id="active-import-count" class="nav-count"></span>':''}</button>`).join('')}</nav><div class="project-label">研究项目</div><button class="project-item ${state.view==='library'&&!state.projectId?'active':''}" data-project="">${icons.folder}<span>全部论文</span></button><div class="project-tree">${tree()}</div><details class="new-project"><summary>${icons.plus}新建项目</summary><form id="new-project-form"><label>项目名称<input name="name" required maxlength="100" placeholder="例如：文档理解" autocomplete="off"></label><label>所属目录<select name="parent_id">${projectOptions(state.projectId,true)}</select></label><button class="button primary" type="submit">创建项目</button></form></details><div class="sidebar-foot"><span class="connection-dot"></span>PDF 与笔记连接后端<small>AI ${state.capabilities.ai_configured?'已配置':'待配置'} · 来源独立更新</small></div></aside>`;
   }
   function publicLink(url,label,classes='text-link') {const safe=safeURL(url);return safe?`<a class="${classes}" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">${label}</a>`:'';}
@@ -154,6 +156,51 @@ async function mountWorkspace() {
   }
   function discover(){
     return `<div class="eyebrow">DISCOVER & READ</div><div class="page-heading"><div><h1>从一个问题，找到下一篇值得读的论文。</h1><p>检索全网，追踪公开发布，把有价值的材料带进你的研究项目。</p></div><button class="button" data-action="open-import">${icons.plus}链接 / PDF 导入</button></div><form id="discovery-search-form" class="discovery-search"><label class="search-box">${icons.search}<input name="q" aria-label="全网或学术论文搜索" type="search" maxlength="500" value="${esc(state.searchQuery)}" placeholder="搜索论文、研究问题、机构文章或项目…" required></label><select name="scope" aria-label="搜索范围">${[['web','全网搜索'],['arxiv','arXiv 论文'],['hf','Hugging Face 论文']].map(([key,name])=>`<option value="${key}" ${state.searchScope===key?'selected':''}>${name}</option>`).join('')}</select><button class="button primary" type="submit">搜索</button></form><div class="discovery-feed-bar"><button class="feed-tab ${state.discoveryMode==='feed'?'active':''}" data-action="show-feed">为你发现</button>${state.discoveryMode==='search'?'<span class="feed-tab active">搜索结果</span>':''}<span class="grow"></span><button class="text-button" data-action="refresh-feed">刷新来源</button></div><form id="interests-form" class="interests-form"><label>关注方向<input name="interests" maxlength="300" value="${esc(state.interests)}" placeholder="例如：OCR, 多模态理解, Agent"></label><button class="button small" type="submit">更新推荐</button><div class="feed-source-choices" role="group" aria-label="推荐内容来源">${['hf','qbitai','jiqizhixin'].map(key=>`<label><input type="checkbox" data-feed-source="${key}" ${state.feedSources.has(key)?'checked':''}>${sourceNames[key]}</label>`).join('')}</div></form><div id="discovery-results" aria-live="polite">${discoveryResults()}</div><p class="discovery-footnote">推荐来自实际来源数据与透明排序规则。量子位使用公开 RSS，机器之心通过已配置搜索服务获取公开网站文章，并非完整的微信公众号消息流。媒体文章与论文分开标记；未连接的机构目录不会被计为已采集来源。${'<button class="text-button" id="restore-hidden-button" data-action="restore-hidden" '+(hiddenItems.size?'':'hidden')+'>恢复已隐藏内容</button>'}</p>`;
+  }
+  function catalogMetric(value) {
+    return value!==null && value!==undefined && Number.isFinite(Number(value)) && Number(value)>=0 ? Number(value).toLocaleString('zh-CN') : '未提供';
+  }
+  function catalogProvenance(entry) {
+    const value=entry && typeof entry==='object'?entry:{};
+    const parts=[value.name||value.dataset_name||value.dataset, (value.source_id||value.source)==='hf'?'HF 热榜':(value.source_id||value.source)==='institution'?'机构清单':value.source_id||value.source, value.week||value.ranking_week, value.rank!==null&&value.rank!==undefined?'第 '+String(value.rank)+' 名':'', value.observed_at||value.fetched_at||value.snapshot_at];
+    return `<li>${parts.filter(v=>typeof v==='string'||typeof v==='number').map(v=>esc(v)).join(' · ')||'已登记来源'}${value.url||value.source_url?' '+publicLink(value.url||value.source_url,'来源 ↗'):''}${value.note||value.notes?'<p>'+esc(value.note||value.notes)+'</p>':''}${value.institution_evidence?'<small>机构记录依据：'+esc(value.institution_evidence)+'</small>':''}</li>`;
+  }
+  function catalogSummary(){
+    if(!state.catalogStats)return `<div class="notice">${state.catalogStatsError?esc(state.catalogStatsError):'正在读取索引覆盖范围…'}</div>`;
+    const stats=state.catalogStats,years=Array.isArray(stats.by_year)?stats.by_year:[],sources=Array.isArray(stats.sources)?stats.sources:[],coverage=Array.isArray(stats.coverage)?stats.coverage:[],last=stats.last_import;
+    return `<div class="catalog-statistics"><div><strong>${catalogMetric(stats.total)}</strong><span>去重论文</span></div>${years.map(y=>`<div><strong>${catalogMetric(y.count)}</strong><span>${esc(y.year??'年份未知')} 年</span></div>`).join('')}${sources.map(s=>`<div><strong>${catalogMetric(s.count)}</strong><span>${esc(s.id==='hf'?'HF 来源':s.id==='institution'?'机构来源':s.id)} · 可交叉收录</span></div>`).join('')}</div><details class="catalog-coverage"><summary>数据覆盖与来源说明${last?' · 最近更新 '+esc(dateText(last.created_at)):''}</summary><p>这里只统计实际收录的记录，不代表 2025–2026 年全部论文或所有周榜。点赞和 GitHub Stars 是采集时的快照；缺失指标显示“未提供”。机构信息沿用来源记录，待核机构不代表已核实作者隶属；论文可能属于多个机构。HF 上榜年份与论文发表年份可能不同。</p>${coverage.length?`<ul>${coverage.map(d=>`<li><strong>${esc(d.name||'未命名数据集')}</strong>${d.source_id||d.source?' · '+esc(d.source_id||d.source):''}${d.ranking_week?' · '+esc(d.ranking_week):''}${d.coverage_start||d.coverage_end?' · '+esc(d.coverage_start||'未知')+' — '+esc(d.coverage_end||'未知'):''}${d.source_url||d.url?' · '+publicLink(d.source_url||d.url,'来源 ↗'):''}${d.note||d.description?'<p>'+esc(d.note||d.description)+'</p>':''}</li>`).join('')}</ul>`:'<p>尚无覆盖范围登记。</p>'}${(stats.import_errors||[]).length?`<div class="catalog-import-errors"><strong>最近未完成的更新</strong><ul>${stats.import_errors.slice(0,5).map(e=>`<li>${esc(e.name||'索引更新')} · ${esc(e.error||'更新失败')} · ${esc(dateText(e.created_at))}</li>`).join('')}</ul></div>`:''}${state.catalogStatsError?`<p class="task-error">${esc(state.catalogStatsError)}</p>`:''}</details>`;
+  }
+  function catalogResults(){
+    if(state.catalogLoading)return '<div class="empty-state"><div class="loading-ring"></div><p>正在检索论文索引…</p></div>';
+    if(state.catalogError)return `<div class="error-panel"><strong>索引读取未完成</strong><p>${esc(state.catalogError)}</p><button class="button" data-action="refresh-catalog">重试</button></div>`;
+    const rows=state.catalogItems;
+    return `<div class="result-caption"><span>${catalogMetric(state.catalogTotal)} 篇匹配论文</span><span>元数据索引 · 选择后再下载与处理</span></div><div class="catalog-grid">${rows.map(item=>{
+      const url=safeURL(item.url),importURL=safeURL(item.pdf_url)||url,authors=Array.isArray(item.authors)?item.authors.map(a=>typeof a==='string'?a:a?.name||'').filter(Boolean):[],institutions=Array.isArray(item.institutions)?item.institutions:[],sources=Array.isArray(item.source_ids)?item.source_ids:[],provenance=Array.isArray(item.provenance)?item.provenance:[];
+      return `<article class="catalog-card"><div class="discovery-card-meta"><span class="pill">${esc(item.year??'年份未提供')}</span>${sources.map(source=>`<span>${esc(source==='hf'?'HF 热榜':source==='institution'?'机构清单':source)}</span>`).join('')}<span>${esc(dateText(item.published_at))}</span></div><h2>${url?publicLink(url,esc(item.title),'discovery-title'):esc(item.title)}</h2><p class="catalog-institutions">${esc(institutions.length?institutions.map(x=>typeof x==='string'?x:x?.name||'').filter(Boolean).join(' · '):'机构未提供')}</p>${authors.length?`<p class="discovery-authors">${esc(authors.join(', '))}</p>`:''}${item.abstract?`<p class="discovery-snippet">${esc(String(item.abstract).slice(0,650))}</p>`:''}<div class="catalog-metrics"><span>HF 点赞 <strong>${catalogMetric(item.hf_upvotes)}</strong></span><span>GitHub Stars <strong>${catalogMetric(item.github_stars)}</strong></span>${publicLink(item.github_url,'代码 ↗')}</div><div class="discovery-card-actions">${importURL?`<button class="button primary small" data-catalog-paper="${esc(item.id)}">${icons.plus}选择并加入项目</button>`:'<span class="muted">缺少可导入链接</span>'}${publicLink(url,'论文原页 ↗')}</div>${provenance.length?`<details class="catalog-provenance"><summary>${provenance.length} 条来源记录</summary><ul>${provenance.map(catalogProvenance).join('')}</ul></details>`:''}</article>`;
+    }).join('')||'<div class="empty-state"><h2>暂无匹配论文</h2><p>调整筛选条件，或导入已整理的 HF 热榜与机构论文索引。</p></div>'}</div><div class="search-pagination"><button class="button" data-catalog-page="${state.catalogPage-1}" ${state.catalogPage<=1?'disabled':''}>上一页</button><span>第 ${state.catalogPage} / ${Math.max(1,state.catalogPages)} 页</span><button class="button" data-catalog-page="${state.catalogPage+1}" ${state.catalogPage>=state.catalogPages?'disabled':''}>下一页</button></div>`;
+  }
+  function catalogArea(){
+    const options=(values,selected)=>values.map(([key,name])=>`<option value="${key}" ${key===selected?'selected':''}>${name}</option>`).join('');
+    return `<div class="eyebrow">PAPER INDEX / 2025–2026</div><div class="page-heading"><div><h1>先挑选，再加入自己的研究。</h1><p>浏览 HF 热榜与重点机构的论文记录，按年份、机构和热度寻找阅读材料。</p></div><button class="button" data-action="refresh-catalog">刷新索引</button></div><div id="catalog-summary">${catalogSummary()}</div><form id="catalog-search-form" class="catalog-search"><label class="search-box">${icons.search}<input name="q" type="search" maxlength="500" value="${esc(state.catalogQuery)}" placeholder="搜索标题、摘要、作者或机构" aria-label="搜索论文索引"></label><label>发表年份<select name="year">${options([['','全部发表年份'],['2025','2025'],['2026','2026']],state.catalogYear)}</select></label><label>收录来源<select name="source">${options([['all','全部来源'],['hf','HF 热榜'],['institution','重点机构']],state.catalogSource)}</select></label><label>机构<input name="institution" list="catalog-institutions" maxlength="200" value="${esc(state.catalogInstitution)}" placeholder="全部机构"><datalist id="catalog-institutions">${catalogInstitutionOptions()}</datalist></label><label>排序<select name="sort">${options([['votes','HF 点赞'],['published','发表时间'],['title','论文标题']],state.catalogSort)}</select></label><button class="button primary" type="submit">筛选</button></form><div id="catalog-results" aria-live="polite">${catalogResults()}</div><details class="catalog-update"><summary>更新论文索引</summary><p>上传已整理的 JSON 或 CSV 元数据（最大 20 MB）。重复论文会合并来源记录，下载与模型处理在选择论文后单独安排。</p><form id="catalog-import-form"><label>索引文件<input name="file" type="file" accept=".json,.csv,application/json,text/csv" required></label><button class="button" type="submit" ${state.catalogImporting?'disabled':''}>${state.catalogImporting?'正在更新…':'导入索引'}</button></form><form id="catalog-hf-form"><label>更新 HF 指定周热榜<input name="week" type="week" min="2025-W01" max="2026-W53" value="${esc(state.catalogHfWeek)}" required aria-label="HF 周榜周期"></label><button class="button" type="submit" ${state.catalogImporting?'disabled':''}>获取这周 Top 50</button></form><small>从 HF 获取所选周的当前热榜快照；明确选择周次后更新，已有索引在请求失败时保留。</small><p id="catalog-import-feedback" class="form-feedback ${state.catalogImportError?'has-error':''}" role="status">${esc(state.catalogImportError||state.catalogFeedback)}</p><small>JSON 支持 papers 数组与 dataset 来源信息；CSV 使用 title、url、year、institutions 等字段，完整格式见仓库文档。</small></details>`;
+  }
+  function catalogInstitutionOptions(){return (state.catalogStats?.institutions||[]).map(i=>`<option value="${esc(i.name)}">${esc(i.name)} · ${catalogMetric(i.count)} 篇</option>`).join('');}
+  function paintCatalog(){
+    const results=qs('#catalog-results');if(results)results.innerHTML=catalogResults();
+    const summary=qs('#catalog-summary');if(summary)summary.innerHTML=catalogSummary();
+    const institutions=qs('#catalog-institutions');if(institutions)institutions.innerHTML=catalogInstitutionOptions();
+  }
+  async function loadCatalog({stats=false}={}){
+    const seq=++catalogSequence;catalogController?.abort();catalogController=new AbortController();
+    const signal=catalogController.signal;state.catalogLoading=true;state.catalogError='';paintCatalog();
+    const query=new URLSearchParams({source:state.catalogSource,sort:state.catalogSort,page:String(state.catalogPage),page_size:String(state.catalogPageSize)});
+    if(state.catalogQuery.trim())query.set('q',state.catalogQuery.trim());if(state.catalogYear)query.set('year',state.catalogYear);if(state.catalogInstitution.trim())query.set('institution',state.catalogInstitution.trim());
+    const results=await Promise.allSettled([api('/catalog?'+query,{signal}),stats||!state.catalogStats?api('/catalog/stats',{signal}):Promise.resolve(state.catalogStats)]);
+    if(seq!==catalogSequence||signal.aborted)return;
+    const [papers,summary]=results;
+    if(papers.status==='fulfilled'){state.catalogItems=list(papers.value);state.catalogTotal=Number(papers.value.total)||0;state.catalogPages=Number(papers.value.pages)||0;state.catalogPage=Number(papers.value.page)||1;}
+    else{state.catalogItems=[];state.catalogError=papers.reason.message||'索引查询失败，请重试。';}
+    if(summary.status==='fulfilled'){state.catalogStats=summary.value;state.catalogStatsError='';}else state.catalogStatsError=summary.reason.message||'覆盖信息读取失败。';
+    state.catalogLoading=false;paintCatalog();
   }
   function library(){
     const project=state.projects.find(p=>p.id===state.projectId);
@@ -195,9 +242,9 @@ async function mountWorkspace() {
     return `<div class="eyebrow">SKILLS & SERVICES</div><div class="page-heading"><div><h1>每一步，都有明确的职责。</h1><p>模型与搜索在服务端配置；新任务使用当前 Skill，旧任务保留输入快照。</p></div><button class="button" data-action="refresh-capabilities">重新检查配置</button></div><div class="capability-grid"><div class="capability-box"><span class="status-dot ${search?'on':''}"></span><strong>全网搜索</strong><p>${search?esc(state.discoveryConfig.web_search?.provider||'搜索服务已配置'):'尚未配置。HF 与 arXiv 的独立学术检索不依赖全网搜索配置。'}</p></div><div class="capability-box"><span class="status-dot ${state.capabilities.ai_configured?'on':''}"></span><strong>阅读与摘要模型</strong><p>${state.capabilities.ai_configured?esc(state.capabilities.ai_model||'已配置'):'尚未配置；下载、PDF 阅读与笔记仍可使用。'}</p></div><div class="capability-box"><span class="status-dot ${state.capabilities.translation_configured?'on':''}"></span><strong>逐页翻译</strong><p>${state.capabilities.translation_configured?'翻译服务已配置，可在导入或阅读时按需启动。':'BabelDOC 待配置，可先导入已有的单语译文 PDF。'}</p></div></div><details class="service-config"><summary>部署配置说明</summary><p>全网搜索可使用自建 SearXNG：设置 SEARCH_PROVIDER=searxng、SEARXNG_BASE_URL，且实例需要启用 JSON 格式；也可设置 SEARCH_PROVIDER=brave、BRAVE_API_KEY。</p><p>阅读模型使用 AI_BASE_URL、AI_MODEL、AI_API_KEY；逐页翻译另需 BABELDOC_BIN。修改环境后重启服务，再重试等待配置的任务。密钥只在服务端保存，不填入本页面。</p></details><div class="skill-grid">${state.skills.map(s=>`<article class="skill-card"><span class="skill-icon">${icons.spark}</span><div class="eyebrow">${esc(s.id)}</div><h2>${esc(s.name||s.id)}</h2><p>${esc(descriptions[s.id]||s.description)}</p>${s.modes?.length?`<div class="paper-projects">${s.modes.map(m=>`<span>${esc(m)}</span>`).join('')}</div>`:''}<small>skills/${esc(s.id)}/SKILL.md</small></article>`).join('')||'<div class="notice">Skill 清单暂时不可用。</div>'}</div>`;
   }
   function render(){
-    const titles={discover:'搜索与推荐',library:'我的论文库',imports:'导入与任务',sources:'来源与关注',skills:'Skills 与服务'};
-    const contents={discover,library,imports:importsArea,sources:sourcesArea,skills:skillsArea};
-    app.innerHTML=`<div class="workspace-layout workspace-v2">${sidebar()}<main class="workspace-main"><header class="workspace-topbar"><span>研究空间 <span class="crumb-separator">/</span> ${titles[state.view]}</span><span class="pill">PaperStudio 0.2</span></header><div class="workspace-content">${contents[state.view]()}</div></main></div>`;
+    const titles={discover:'搜索与推荐',catalog:'论文索引',library:'我的论文库',imports:'导入与任务',sources:'来源与关注',skills:'Skills 与服务'};
+    const contents={discover,catalog:catalogArea,library,imports:importsArea,sources:sourcesArea,skills:skillsArea};
+    app.innerHTML=`<div class="workspace-layout workspace-v2">${sidebar()}<main class="workspace-main"><header class="workspace-topbar"><span>研究空间 <span class="crumb-separator">/</span> ${titles[state.view]}</span><span class="pill">PaperStudio 0.3</span></header><div class="workspace-content">${contents[state.view]()}</div></main></div>`;
     updateURL();updateImportCount();
   }
   function updateImportCount(){const count=state.imports.filter(t=>['queued','running'].includes(t.status)).length;const el=qs('#active-import-count');if(el){el.textContent=count?String(count):'';el.hidden=!count;}}
@@ -231,7 +278,7 @@ async function mountWorkspace() {
     finally{if(seq===importsSequence){state.importLoading=false;if(qs('#import-results'))qs('#import-results').innerHTML=importList();schedulePoll();}}
   }
   async function refreshCapabilities(){const [caps,config]=await Promise.allSettled([api('/capabilities'),api('/discovery/config')]);if(caps.status==='fulfilled')state.capabilities=caps.value;if(config.status==='fulfilled')state.discoveryConfig=config.value;}
-  async function setView(view){if(!views.has(view))return;state.view=view;state.editProject=false;render();if(view==='library')await loadPapers();if(view==='discover'&&!state.discoveryItems.length&&!state.discoveryLoading)await loadDiscovery();if(view==='imports')await loadImports();schedulePoll();}
+  async function setView(view){if(!views.has(view))return;state.view=view;state.editProject=false;render();if(view==='library')await loadPapers();if(view==='discover'&&!state.discoveryItems.length&&!state.discoveryLoading)await loadDiscovery();if(view==='imports')await loadImports();if(view==='catalog')await loadCatalog({stats:true});schedulePoll();}
   function openImport({url='',title='',paperId=null,projectId}={}){
     state.importer={...state.importer,kind:paperId?'existing':'url',url,title,paperId,file:null,projectId:projectId||state.projectId||state.importer.projectId||'inbox'};
     if(!state.projects.some(p=>p.id===state.importer.projectId))state.importer.projectId=state.projects[0]?.id||'inbox';
@@ -243,6 +290,8 @@ async function mountWorkspace() {
     try{
       if(button.dataset.view){await setView(button.dataset.view);return;}
       if('project' in button.dataset){state.projectId=button.dataset.project;await setView('library');return;}
+      if(button.dataset.catalogPaper){const item=state.catalogItems.find(p=>p.id===button.dataset.catalogPaper);const url=safeURL(item?.pdf_url)||safeURL(item?.url);if(url)openImport({url,title:item.title});return;}
+      if(button.dataset.catalogPage){state.catalogPage=Math.max(1,Math.min(state.catalogPages||1,Number(button.dataset.catalogPage)));await loadCatalog();return;}
       if(button.dataset.importKind){state.importer.kind=button.dataset.importKind;state.importer.paperId=null;state.importFailure='';render();return;}
       if(button.dataset.follow){const id=button.dataset.follow;followed.has(id)?followed.delete(id):followed.add(id);remember('paperstudio-source-follows',[...followed]);render();toast('关注偏好已保存');return;}
       if(button.dataset.processPaper){const p=state.papers.find(x=>x.id===button.dataset.processPaper);if(p)openImport({paperId:p.id,title:p.title,projectId:button.dataset.processProject});return;}
@@ -257,6 +306,7 @@ async function mountWorkspace() {
         case'refresh-feed':state.discoveryMode='feed';render();await loadDiscovery({refresh:true});break;
         case'retry-discovery':await loadDiscovery({refresh:true});break;
         case'restore-hidden':hiddenItems.clear();remember('paperstudio-hidden-discovery',[]);render();break;
+        case'refresh-catalog':await loadCatalog({stats:true});break;
         case'refresh-imports':await loadImports();break;
         case'refresh-capabilities':button.disabled=true;await refreshCapabilities();render();break;
       }
@@ -264,6 +314,8 @@ async function mountWorkspace() {
   });
   app.addEventListener('input',event=>{
     const field=event.target;
+    if(field.form?.id==='catalog-hf-form'&&field.name==='week')state.catalogHfWeek=field.value;
+    if(field.form?.id==='catalog-search-form'){const key={q:'catalogQuery',institution:'catalogInstitution'}[field.name];if(key)state[key]=field.value;}
     if(field.id==='library-query'){state.query=field.value;clearTimeout(debounce);debounce=setTimeout(loadPapers,220);}
     if(field.id==='source-query'){state.sourceQuery=field.value;const pos=field.selectionStart;render();const input=qs('#source-query');input.focus();input.setSelectionRange(pos,pos);}
     if(field.form?.id==='import-form'&&['url','title'].includes(field.name))state.importer[field.name]=field.value;
@@ -272,6 +324,7 @@ async function mountWorkspace() {
   });
   app.addEventListener('change',async event=>{
     const field=event.target;
+    if(field.form?.id==='catalog-search-form'){const key={year:'catalogYear',source:'catalogSource',sort:'catalogSort'}[field.name];if(key){state[key]=field.value;state.catalogPage=1;await loadCatalog();}}
     if(field.id==='library-children'){state.includeChildren=field.checked;await loadPapers();}
     if(field.id==='library-status'){state.status=field.value;qs('#library-results').innerHTML=paperList();}
     if(field.id==='source-priority'){state.priority=field.value;render();}
@@ -284,7 +337,7 @@ async function mountWorkspace() {
     }
   });
   app.addEventListener('submit',async event=>{
-    event.preventDefault();const form=event.target;if(form.id==='import-form'&&state.importSubmitting)return;const fd=new FormData(form),submit=form.querySelector('[type=submit]')||form.querySelector('button');if(submit)submit.disabled=true;
+    event.preventDefault();const form=event.target;if(form.id==='import-form'&&state.importSubmitting||['catalog-import-form','catalog-hf-form'].includes(form.id)&&state.catalogImporting)return;const fd=new FormData(form),submit=form.querySelector('[type=submit]')||form.querySelector('button');if(submit)submit.disabled=true;
     try{
       if(form.id==='new-project-form'){
         const created=await api('/projects',{method:'POST',body:{name:fd.get('name'),parent_id:fd.get('parent_id')||null}});state.projects=list(await api('/projects'));state.projectId=created.id;await setView('library');toast('项目已创建');
@@ -292,6 +345,12 @@ async function mountWorkspace() {
         await api('/projects/'+encodeURIComponent(state.projectId),{method:'PATCH',body:{name:fd.get('name'),parent_id:fd.get('parent_id')||null}});state.projects=list(await api('/projects'));state.editProject=false;render();toast('项目已保存');
       }else if(form.id==='discovery-search-form'){
         state.searchQuery=String(fd.get('q')||'').trim();state.searchScope=String(fd.get('scope'));state.searchPage=1;state.discoveryMode='search';render();await loadDiscovery();
+      }else if(form.id==='catalog-search-form'){
+        state.catalogQuery=String(fd.get('q')||'').trim();state.catalogYear=String(fd.get('year')||'');state.catalogSource=String(fd.get('source')||'all');state.catalogInstitution=String(fd.get('institution')||'').trim();state.catalogSort=String(fd.get('sort')||'votes');state.catalogPage=1;await loadCatalog();
+      }else if(form.id==='catalog-hf-form'){
+        const week=String(fd.get('week')||'').trim();if(!/^202[56]-W(?:0[1-9]|[1-4]\d|5[0-3])$/.test(week))throw new Error('请选择 2025 或 2026 年的 HF 周榜。');state.catalogHfWeek=week;state.catalogImporting=true;state.catalogImportError='';state.catalogFeedback='正在获取 HF '+week+' 热榜…';const feedback=qs('#catalog-import-feedback');if(feedback){feedback.textContent=state.catalogFeedback;feedback.classList.remove('has-error');}if(submit)submit.textContent='正在获取…';const result=await api('/catalog/refresh-hf',{method:'POST',body:{week}});state.catalogFeedback=`HF ${week}：已处理 ${catalogMetric(result.row_count)} 条，新增 ${catalogMetric(result.inserted)}，更新 ${catalogMetric(result.updated)}。`;state.catalogPage=1;await loadCatalog({stats:true});const updated=qs('#catalog-import-feedback');if(updated)updated.textContent=state.catalogFeedback;toast('HF 周榜索引已更新');
+      }else if(form.id==='catalog-import-form'){
+        const file=fd.get('file');if(!file?.size)throw new Error('请选择 JSON 或 CSV 索引文件。');if(file.size>20*1048576)throw new Error('索引文件超过 20 MB 限制。');state.catalogImporting=true;state.catalogImportError='';state.catalogFeedback='正在校验并更新索引…';const feedback=qs('#catalog-import-feedback');if(feedback){feedback.textContent=state.catalogFeedback;feedback.classList.remove('has-error');}if(submit)submit.textContent='正在更新…';const body=new FormData();body.set('file',file);const result=await api('/catalog/import',{method:'POST',body});state.catalogFeedback=`已处理 ${catalogMetric(result.row_count)} 条记录：新增 ${catalogMetric(result.inserted)}，更新 ${catalogMetric(result.updated)}，未变化 ${catalogMetric(result.unchanged)}。`;state.catalogPage=1;await loadCatalog({stats:true});const updated=qs('#catalog-import-feedback');if(updated)updated.textContent=state.catalogFeedback;toast('论文索引已更新');
       }else if(form.id==='interests-form'){
         state.interests=String(fd.get('interests')||'');remember('paperstudio-interests',state.interests);state.discoveryMode='feed';render();await loadDiscovery();
       }else if(form.id==='import-form'){
@@ -306,16 +365,16 @@ async function mountWorkspace() {
         }
         state.importMessage=task.paper_id?'原文已入库，可从下方任务打开阅读；后台继续处理所选步骤。':'导入已排队。下载完成后即可打开原文，其余步骤继续在后台执行。';await loadImports();const updatedFeedback=qs('#import-feedback');if(updatedFeedback){updatedFeedback.textContent=state.importMessage;updatedFeedback.classList.remove('has-error');}toast('处理计划已保存');
       }else if(form.dataset.associate){await api(`/papers/${encodeURIComponent(form.dataset.associate)}/projects`,{method:'POST',body:{project_id:fd.get('project_id')}});toast('已关联项目');await loadPapers();}
-    }catch(e){toast(e.message);if(form.id==='import-form'){state.importFailure=e.message;state.importMessage='';const feedback=qs('#import-feedback');if(feedback){feedback.textContent=e.message;feedback.classList.add('has-error');}}}
-    finally{if(form.id==='import-form'){state.importSubmitting=false;if(submit?.isConnected)submit.textContent=state.importer.kind==='existing'?'创建处理计划':'导入并后台处理';}if(submit?.isConnected)submit.disabled=false;}
+    }catch(e){toast(e.message);if(['catalog-import-form','catalog-hf-form'].includes(form.id)){state.catalogImportError=e.message;state.catalogFeedback='';const feedback=qs('#catalog-import-feedback');if(feedback){feedback.textContent=e.message;feedback.classList.add('has-error');}}if(form.id==='import-form'){state.importFailure=e.message;state.importMessage='';const feedback=qs('#import-feedback');if(feedback){feedback.textContent=e.message;feedback.classList.add('has-error');}}}
+    finally{if(['catalog-import-form','catalog-hf-form'].includes(form.id)){state.catalogImporting=false;if(submit?.isConnected)submit.textContent=form.id==='catalog-hf-form'?'获取这周 Top 50':'导入索引';}if(form.id==='import-form'){state.importSubmitting=false;if(submit?.isConnected)submit.textContent=state.importer.kind==='existing'?'创建处理计划':'导入并后台处理';}if(submit?.isConnected)submit.disabled=false;}
   });
-  window.addEventListener('pagehide',()=>{pageActive=false;clearTimeout(pollTimer);});
-  window.addEventListener('pageshow',event=>{pageActive=true;if(event.persisted)loadImports();});
+  window.addEventListener('pagehide',()=>{pageActive=false;clearTimeout(pollTimer);catalogController?.abort();++catalogSequence;});
+  window.addEventListener('pageshow',event=>{pageActive=true;if(event.persisted){loadImports();if(state.view==='catalog')loadCatalog({stats:true});}});
   try{
     const [projects,caps,skills,sources,config]=await Promise.allSettled([api('/projects'),api('/capabilities'),api('/skills'),api('/sources'),api('/discovery/config')]);
     if(projects.status==='rejected')throw projects.reason;state.projects=list(projects.value);if(state.projectId&&!state.projects.some(p=>p.id===state.projectId))state.projectId='';
     if(!state.projects.some(p=>p.id===state.importer.projectId))state.importer.projectId=state.projects[0]?.id||'inbox';
     if(caps.status==='fulfilled')state.capabilities=caps.value;if(skills.status==='fulfilled')state.skills=list(skills.value);if(sources.status==='fulfilled'){state.sources=list(sources.value);state.sourceGroups=sources.value?.groups||{};}if(config.status==='fulfilled')state.discoveryConfig=config.value;
-    render();loadImports();if(state.view==='discover')await loadDiscovery();else if(state.view==='library')await loadPapers();
+    render();loadImports();if(state.view==='discover')await loadDiscovery();else if(state.view==='library')await loadPapers();else if(state.view==='catalog')await loadCatalog({stats:true});
   }catch(e){app.innerHTML=`<main class="boot-state"><span class="brand-symbol">${icons.book}</span><h1>工作台暂时无法连接</h1><p>${esc(e.message)}</p><a class="button primary" href="/">重新连接</a></main>`;}
 }

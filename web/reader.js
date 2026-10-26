@@ -67,6 +67,22 @@ export function paragraphScrollDelta(start, end, viewportStart, viewportEnd, mar
   return end-start > high-low ? start-low : end-high;
 }
 
+// Reading layout is independent from translation work. A display toggle never
+// authorizes a provider request or broadens a precise PDF note selection.
+export function readingBlockAt(blocks, probe) {
+  const selected=validParagraphRects(probe?.rects),point=probe?.point;
+  return (Array.isArray(blocks)?blocks:[]).filter(block=>block?.id&&typeof block.text==='string').find(block=>
+    validParagraphRects(block.rects).some(r=>selected.length
+      ? selected.some(s=>Math.min(r.x+r.width,s.x+s.width)>Math.max(r.x,s.x)&&Math.min(r.y+r.height,s.y+s.height)>Math.max(r.y,s.y))
+      : point&&Number.isFinite(point.x)&&Number.isFinite(point.y)&&point.x>=r.x&&point.x<=r.x+r.width&&point.y>=r.y&&point.y<=r.y+r.height))||null;
+}
+export function readingJobMatches(job,sourceSha,page,blockId,projectId) {
+  return !!job&&job.kind==='paragraph-translate'&&job.source_sha===sourceSha&&Number(job.page)===Number(page)&&job.block_id===blockId&&job.project_id===projectId;
+}
+export function readingDisplay(mode,bilingual) {
+  return {mode:mode==='reflow'?'reflow':'pdf',bilingual:bilingual===true};
+}
+
 export async function mountReader({paperId,projectId}) {
   const app = qs('#app');
   const pid = encodeURIComponent(paperId);
@@ -77,7 +93,9 @@ export async function mountReader({paperId,projectId}) {
     manifest:[], translations:{active_run_id:null,mode:'none',status:'idle',pages:[]},
     pages:new Map(), requests:new Map(), near:new Set(), pairs:new Map(), pollTimer:null,
     paragraphEnabled:true, paragraphFocus:null, paragraphMatches:[], paragraphResolvedKey:null,
-    paragraphCache:new Map(), paragraphRequests:new Map(), paragraphSequence:0
+    paragraphCache:new Map(), paragraphRequests:new Map(), paragraphSequence:0,
+    readingMode:'pdf',translationView:false,readingPages:new Map(),readingRequests:new Map(),
+    readingFocus:null,readingSequence:0,readingBusy:new Set(),readingBatch:false,readingPollCursor:0
   };
   let observer, scrollFrame, saveTimer, positionQueue = Promise.resolve(true), refreshing = false, refreshSequence = 0;
   const finishedProjects = new Set();
@@ -106,20 +124,188 @@ export async function mountReader({paperId,projectId}) {
   }
   function shell() {
     document.title=`${state.paper.title} · PaperStudio`;
-    app.innerHTML=`<div class="reader-app continuous-reader">
+    app.innerHTML=`<div class="reader-app continuous-reader reading-pdf translation-off">
       <header class="reader-header"><a class="reader-back" href="/?view=library&project=${encodeURIComponent(state.projectId)}" title="返回论文库" aria-label="返回论文库">←</a><div class="reader-heading"><div class="eyebrow">PAPERSTUDIO / READING</div><h1>${esc(state.paper.title)}</h1><span>${esc(projectPath(state.projectId)||'当前项目')}</span></div><div class="reader-header-actions"><a class="button small subtle" href="/api/papers/${pid}/file?side=original" target="_blank" rel="noopener">原始 PDF ↗</a><button class="button primary small" data-reader-action="finish">${icons.note}读完，整理笔记</button></div></header>
-      <div class="reader-toolbar"><div class="reader-page-controls"><button class="icon-button" data-reader-action="prev" aria-label="跳到上一页">‹</button><label>定位到 <input id="reader-page" aria-label="定位页码" type="number" min="1" max="${state.paper.page_count}" value="${state.page}"> / ${state.paper.page_count} 页</label><button class="icon-button" data-reader-action="next" aria-label="跳到下一页">›</button></div><div class="reader-zoom-controls"><button class="icon-button" data-reader-action="zoom-out" aria-label="缩小页面">−</button><select id="reader-zoom" aria-label="两侧页面缩放">${[75,100,125,150,175,200].map(z=>`<option value="${z}" ${z===state.zoom?'selected':''}>${z}%</option>`).join('')}</select><button class="icon-button" data-reader-action="zoom-in" aria-label="放大页面">＋</button><span class="continuous-mode-label">连续滚动 · 左右对齐</span><label class="paragraph-link-toggle"><input id="paragraph-link-toggle" type="checkbox" checked>段落联动</label><button id="paragraph-retranslate" class="text-button paragraph-retranslate" data-reader-action="retranslate" title="重新翻译全文并生成段落对应信息" hidden>重新翻译</button></div><div class="reader-context"><span id="reading-status" class="pill">${statuses[membership().status]||'待读'}</span><label>项目<select id="reader-project" aria-label="当前阅读项目">${memberships(state.paper).map(m=>`<option value="${esc(m.project_id)}" ${m.project_id===state.projectId?'selected':''}>${esc(projectPath(m.project_id)||m.project_name||m.project_id)}</option>`).join('')}</select></label></div></div>
-      <div class="reader-columns continuous-columns"><section class="document-pane" aria-label="原文与译文连续阅读"><div class="document-column-labels"><div><strong><span class="column-dot original"></span>原文</strong><span>原始 PDF · SVG</span></div><div><strong><span class="column-dot translated"></span>译文</strong><span id="translation-progress"></span><button class="text-button" data-reader-action="translate">逐页翻译</button><button class="text-button" data-reader-action="upload-translation">导入译文</button><a id="translation-download" class="text-button" href="/api/papers/${pid}/file?side=translation" download hidden>下载完整译文 ↓</a></div></div><div id="document-scroll" class="document-scroll" tabindex="0" aria-label="连续 PDF 页面滚动区"><div id="document-pages" class="document-pages"></div></div></section>
-      <aside class="reading-sidebar" aria-label="AI 与阅读笔记"><div class="reading-tabs"><button data-reader-tab="notes" class="active">${icons.note}阅读笔记 <span id="note-count">${state.notes.length}</span></button><button data-reader-tab="ai">${icons.spark}AI 工作台</button></div><div class="reading-sidebar-body" id="reading-sidebar-body"></div></aside></div>
-      <footer class="reader-footer"><span id="reader-hint" role="status" aria-live="polite">单击段落可定位对应译文，拖选词句可记录精确笔记。</span><span>译文逐页就绪 · 当前项目独立保存</span></footer><input id="translation-file" type="file" accept="application/pdf,.pdf" hidden></div>`;
-    qs('#document-pages').innerHTML=state.manifest.map(p=>`<section class="page-pair" data-pair-page="${p.page}" aria-label="第 ${p.page} 页"><article class="page-slot"><div class="pair-page-label">原文 · ${p.page}</div><div id="page-original-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article><article class="page-slot"><div class="pair-page-label">译文 · ${p.page}</div><div id="page-translation-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article></section>`).join('');
+      <div class="reader-toolbar"><div class="reader-mode-controls" role="group" aria-label="阅读模式"><button data-reader-mode="pdf" class="active" aria-pressed="true">原 PDF</button><button data-reader-mode="reflow" aria-pressed="false">阅读模式</button><label><input id="translation-view-toggle" type="checkbox">显示翻译</label></div><div class="reader-page-controls"><button class="icon-button" data-reader-action="prev" aria-label="跳到上一页">‹</button><label>定位到 <input id="reader-page" aria-label="定位页码" type="number" min="1" max="${state.paper.page_count}" value="${state.page}"> / ${state.paper.page_count} 页</label><button class="icon-button" data-reader-action="next" aria-label="跳到下一页">›</button></div><div class="reader-zoom-controls"><button class="icon-button" data-reader-action="zoom-out" aria-label="缩小页面">−</button><select id="reader-zoom" aria-label="两侧页面缩放">${[75,100,125,150,175,200].map(z=>`<option value="${z}" ${z===state.zoom?'selected':''}>${z}%</option>`).join('')}</select><button class="icon-button" data-reader-action="zoom-in" aria-label="放大页面">＋</button><span class="continuous-mode-label">连续滚动 · 左右对齐</span><label class="paragraph-link-toggle pdf-bilingual-only"><input id="paragraph-link-toggle" type="checkbox" checked>段落联动</label><button id="paragraph-retranslate" class="text-button paragraph-retranslate" data-reader-action="retranslate" title="重新翻译全文并生成段落对应信息" hidden>重新翻译</button></div><div class="reader-context"><span id="reading-status" class="pill">${statuses[membership().status]||'待读'}</span><label>项目<select id="reader-project" aria-label="当前阅读项目">${memberships(state.paper).map(m=>`<option value="${esc(m.project_id)}" ${m.project_id===state.projectId?'selected':''}>${esc(projectPath(m.project_id)||m.project_name||m.project_id)}</option>`).join('')}</select></label></div></div>
+      <div class="reader-columns continuous-columns"><section class="document-pane" aria-label="原文与译文连续阅读"><div class="document-column-labels pdf-only"><div><strong><span class="column-dot original"></span>原文</strong><span>原始 PDF · SVG</span></div><div><strong><span class="column-dot translated"></span>译文</strong><span id="translation-progress"></span><button class="text-button" data-reader-action="translate">逐页翻译</button><button class="text-button" data-reader-action="upload-translation">导入译文</button><a id="translation-download" class="text-button" href="/api/papers/${pid}/file?side=translation" download hidden>下载完整译文 ↓</a></div></div><div class="reflow-toolbar reflow-only"><span>文字重排 · 按原页组织</span><span class="reflow-translation-actions"><button class="text-button" data-reader-action="translate-reading-page">翻译本页段落</button><span id="reading-batch-status" role="status"></span></span><span>图表、公式与划词笔记请回原 PDF</span></div><div id="document-scroll" class="document-scroll" tabindex="0" aria-label="连续 PDF 页面滚动区"><div id="document-pages" class="document-pages"></div></div></section>
+      <aside class="reading-sidebar" aria-label="AI 与阅读笔记"><div id="paragraph-translation-panel" class="paragraph-translation-panel" hidden aria-live="polite"></div><div class="reading-tabs"><button data-reader-tab="notes" class="active">${icons.note}阅读笔记 <span id="note-count">${state.notes.length}</span></button><button data-reader-tab="ai">${icons.spark}AI 工作台</button></div><div class="reading-sidebar-body" id="reading-sidebar-body"></div></aside></div>
+      <footer class="reader-footer"><span id="reader-hint" role="status" aria-live="polite">单击原文段落后，可在右侧按需翻译。拖选词句可记录精确笔记。</span><span>默认不翻译 · 当前项目独立保存</span></footer><input id="translation-file" type="file" accept="application/pdf,.pdf" hidden></div>`;
+    qs('#document-pages').innerHTML=state.manifest.map(p=>`<section class="page-pair" data-pair-page="${p.page}" aria-label="第 ${p.page} 页"><article class="page-slot"><div class="pair-page-label">原文 · ${p.page}</div><div id="page-original-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article><article class="page-slot"><div class="pair-page-label">译文 · ${p.page}</div><div id="page-translation-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article><article id="reading-page-${p.page}" class="reflow-page reflow-only" data-reading-page="${p.page}"><div class="reflow-page-heading">第 ${p.page} 页</div><p class="muted">正在重排原文…</p></article></section>`).join('');
     for(const element of app.querySelectorAll('.page-pair'))state.pairs.set(Number(element.dataset.pairPage),element);
     const scroll=qs('#document-scroll'); scroll.addEventListener('scroll',handleScroll,{passive:true});
     observer=new IntersectionObserver(entries=>{
       for(const entry of entries){const page=Number(entry.target.dataset.pairPage);if(entry.isIntersecting){state.near.add(page);void loadPair(page);}else{state.near.delete(page);unloadPair(page);}}
     },{root:scroll,rootMargin:'1000px 0px',threshold:0});
     for(const element of state.pairs.values())observer.observe(element);
-    renderSidebar(); updateToolbar(); updateTranslationProgress();
+    renderSidebar(); updateToolbar(); updateTranslationProgress(); updateReadingLayout();
+  }
+  function updateReadingLayout() {
+    const root=qs('.continuous-reader');if(!root)return;
+    root.classList.toggle('reading-reflow',state.readingMode==='reflow');
+    root.classList.toggle('reading-pdf',state.readingMode==='pdf');
+    root.classList.toggle('translation-off',!state.translationView);
+    root.classList.toggle('translation-on',state.translationView);
+    for(const button of app.querySelectorAll('[data-reader-mode]')){
+      const active=button.dataset.readerMode===state.readingMode;
+      button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
+    }
+    const toggle=qs('#translation-view-toggle');if(toggle)toggle.checked=state.translationView;
+    const label=qs('.continuous-mode-label');if(label)label.textContent=state.readingMode==='reflow'?'连续滚动 · 文字重排':state.translationView?'连续滚动 · 左右对照':'连续滚动 · 原始 PDF';
+    const retry=qs('#paragraph-retranslate');if(retry&&(state.readingMode!=='pdf'||!state.translationView))retry.hidden=true;
+  }
+  async function setReadingDisplay(mode,bilingual) {
+    readPosition();const page=state.page,offset=state.pageOffset;
+    const next=readingDisplay(mode,bilingual);
+    state.readingMode=next.mode;state.translationView=next.bilingual;
+    clearParagraphFocus('单击原文段落后可在右侧翻译；切换显示模式不会自动调用翻译。');
+    for(const row of state.pairs.values())row.style.minHeight='';
+    if(!state.translationView||state.readingMode!=='pdf'){
+      for(const [key,controller] of state.requests)if(key.startsWith('translation:')){controller.abort();state.requests.delete(key);}
+    }
+    updateReadingLayout();renderReadingPanel();
+    await new Promise(resolve=>requestAnimationFrame(resolve));
+    await goToPage(page,{offset,remember:false});
+    await Promise.all([...state.near].map(loadPair));
+  }
+  async function loadReadingPage(page,{force=false}={}) {
+    const cached=state.readingPages.get(page);
+    if(!force&&cached?.source_sha===state.paper.sha256)return cached;
+    if(state.readingRequests.has(page))return state.readingRequests.get(page).pending;
+    const sha=state.paper.sha256,project=state.projectId,controller=new AbortController();
+    const pending=(async()=>{
+      try{
+        const data=await api(`/papers/${pid}/pages/${page}/reading?project_id=${encodeURIComponent(project)}`,{signal:controller.signal});
+        if(state.disposed||controller.signal.aborted||state.paper.sha256!==sha||state.projectId!==project)return null;
+        if(data.source_sha!==sha||Number(data.page)!==Number(page)||!Array.isArray(data.blocks))throw new Error('原文版本已变化，请重新打开论文。');
+        state.readingPages.set(page,data);
+        while(state.readingPages.size>24){
+          const candidate=[...state.readingPages.keys()].find(p=>!state.near.has(p)&&p!==state.readingFocus?.page&&p!==page);
+          if(candidate===undefined)break;state.readingPages.delete(candidate);
+        }
+        return data;
+      }finally{if(state.readingRequests.get(page)===controller)state.readingRequests.delete(page);}
+    })();controller.pending=pending;state.readingRequests.set(page,controller);return pending;
+  }
+  function readingTranslation(job) {
+    if(!job)return '<span class="muted">尚未翻译。可按需翻译此段或本页。</span>';
+    if(job.status==='succeeded')return `<div class="paragraph-result" lang="zh-CN">${esc(job.result_markdown||'译文为空，请重试。')}</div>`;
+    if(['queued','running'].includes(job.status))return `<span class="paragraph-working">${job.status==='queued'?'等待翻译…':'正在翻译此段…'}</span>`;
+    return `<span class="paragraph-error">${esc(job.error||'此段翻译未完成，可重新提交。')}</span>`;
+  }
+  function blockTranslation(block,page) {
+    return readingJobMatches(block?.translation,state.paper.sha256,page,block?.id,state.projectId)?block.translation:null;
+  }
+  function readingBlockMarkup(block,page) {
+    const job=blockTranslation(block,page),active=state.readingFocus?.page===page&&state.readingFocus?.block_id===block.id;
+    return `<section class="reflow-block ${block.type==='heading'?'reflow-heading':''} ${active?'selected':''}" data-block-id="${esc(block.id)}" data-block-page="${page}"><div class="reflow-source" lang="en" tabindex="0" role="button" aria-label="选中段落，在右侧按需翻译">${esc(block.text)}</div><div class="reflow-block-actions"><button class="text-button" data-reading-block="${esc(block.id)}" data-reading-page="${page}">选中段落</button><button class="text-button" data-reading-pdf="${page}">原 PDF ↗</button><button class="text-button bilingual-only" data-reading-translate="${esc(block.id)}" data-reading-page="${page}">${job?.status==='succeeded'?'重新查看译文':'翻译此段'}</button></div><div class="reflow-translation bilingual-only" data-translation-key="${esc(job?.id||'')}:${esc(job?.status||'')}">${readingTranslation(job)}</div></section>`;
+  }
+  async function renderReadingPage(page) {
+    const host=qs(`#reading-page-${page}`);if(!host||state.disposed)return;
+    try{
+      const data=await loadReadingPage(page);if(!data||state.disposed)return;
+      if(host.dataset.identity===data.source_sha){updateReadingResults(page);return;}
+      const row=state.pairs.get(page),oldHeight=row?.getBoundingClientRect().height||0;
+      host.innerHTML=`<div class="reflow-page-heading"><span>第 ${page} 页</span><button class="text-button" data-reading-pdf="${page}">查看原 PDF ↗</button></div>${(data.warnings||[]).map(w=>`<p class="reflow-notice">${esc(w)}</p>`).join('')}${data.blocks.length?data.blocks.map(block=>readingBlockMarkup(block,page)).join(''):'<div class="reflow-empty">本页没有可重排文字。扫描页、图表和公式请查看原 PDF。</div>'}`;
+      host.dataset.identity=data.source_sha;
+      if(state.readingMode==='reflow'&&page<state.page&&row)qs('#document-scroll').scrollTop+=row.getBoundingClientRect().height-oldHeight;
+      host.querySelectorAll('.reflow-source').forEach(element=>{
+        const choose=()=>{const section=element.closest('[data-block-id]');void selectReadingBlock(page,{blockId:section.dataset.blockId});};
+        element.addEventListener('click',()=>{const selected=window.getSelection();if(!selected||selected.isCollapsed)choose();});
+        element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();choose();}});
+      });
+    }catch(error){if(state.disposed||error.name==='AbortError')return;host.innerHTML=`<div class="reflow-empty">${esc(error.message)} <button class="text-button" data-reading-reload="${page}">重新加载</button></div>`;}
+  }
+  function updateReadingResults(page) {
+    const data=state.readingPages.get(page),host=qs(`#reading-page-${page}`);if(!data||!host)return;
+    for(const element of host.querySelectorAll('[data-block-id]')){
+      const block=data.blocks.find(b=>b.id===element.dataset.blockId);if(!block)continue;
+      const job=blockTranslation(block,page),target=element.querySelector('.reflow-translation'),key=`${job?.id||''}:${job?.status||''}`;
+      if(target&&target.dataset.translationKey!==key){target.innerHTML=readingTranslation(job);target.dataset.translationKey=key;}
+      element.classList.toggle('selected',state.readingFocus?.page===page&&state.readingFocus?.block_id===block.id);
+    }
+  }
+  async function selectReadingBlock(page,probe) {
+    const sequence=++state.readingSequence,sha=state.paper.sha256;
+    try{
+      const data=await loadReadingPage(page);
+      if(!data||state.disposed||sequence!==state.readingSequence||state.paper.sha256!==sha)return;
+      const block=probe.blockId?data.blocks.find(b=>b.id===probe.blockId):readingBlockAt(data.blocks,probe);
+      if(!block){paragraphHint('这里没有可定位的文字段落。图表与扫描文字请在原 PDF 中查看。');return;}
+      const old=state.readingFocus?.page;
+      state.readingFocus={page,block_id:block.id,source_sha:sha};
+      renderReadingPanel();renderParagraphHighlights();if(old)updateReadingResults(old);updateReadingResults(page);
+      if(!state.translationView)paragraphHint('已选中段落。点击右侧“翻译此段”才会调用模型。');
+    }catch(error){if(!state.disposed&&sequence===state.readingSequence&&error.name!=='AbortError')paragraphHint('段落读取失败：'+error.message);}
+  }
+  function renderReadingPanel() {
+    const panel=qs('#paragraph-translation-panel');if(!panel)return;
+    const focus=state.readingFocus,block=focus&&state.readingPages.get(focus.page)?.blocks.find(b=>b.id===focus.block_id);
+    if(!block||focus.source_sha!==state.paper.sha256){panel.hidden=true;delete panel.dataset.renderKey;return;}
+    const job=blockTranslation(block,focus.page),busy=state.readingBusy.has(`${focus.page}:${block.id}`)||['queued','running'].includes(job?.status);
+    panel.hidden=false;
+    const key=JSON.stringify([focus.source_sha,focus.page,block.id,job?.id,job?.status,job?.result_markdown,job?.error,busy]);
+    if(panel.dataset.renderKey===key)return;panel.dataset.renderKey=key;
+    const scroll=panel.scrollTop;
+    panel.innerHTML=`<div class="paragraph-panel-heading"><strong>段落翻译 <span>第 ${focus.page} 页</span></strong><button class="text-button" data-reader-action="close-reading-panel" aria-label="关闭段落翻译">×</button></div><blockquote>${esc(block.text)}</blockquote><div class="paragraph-panel-result">${readingTranslation(job)}</div><div class="paragraph-panel-actions"><button class="button small" data-reading-translate="${esc(block.id)}" data-reading-page="${focus.page}" ${busy?'disabled':''}>${busy?'翻译处理中…':job?.status==='succeeded'?'查看已缓存译文':'翻译此段'}</button><button class="text-button" data-reading-pdf="${focus.page}">原 PDF ↗</button>${['queued','running'].includes(job?.status)?`<button class="text-button" data-job-cancel="${esc(job.id)}">取消</button>`:''}</div><p class="paragraph-panel-note">只处理这一段；全文 PDF 翻译需单独开启。</p>`;
+    panel.scrollTop=scroll;
+  }
+  async function translateReadingBlock(page,blockId) {
+    const data=await loadReadingPage(page),block=data?.blocks.find(b=>b.id===blockId);
+    if(!block||data.source_sha!==state.paper.sha256)throw new Error('段落已失效，请重新选择。');
+    const existing=blockTranslation(block,page),key=`${page}:${blockId}`;
+    if(existing&&['queued','running','succeeded'].includes(existing.status)){renderReadingPanel();return existing;}
+    if(!state.capabilities.ai_configured)throw new Error('段落翻译需要配置 AI_BASE_URL、AI_MODEL，以及服务需要时的 AI_API_KEY。');
+    if(state.readingBusy.has(key))return null;
+    state.readingBusy.add(key);renderReadingPanel();
+    try{
+      const job=await api(`/papers/${pid}/reading/translate`,{method:'POST',body:{project_id:state.projectId,page,block_id:blockId,source_sha:data.source_sha}});
+      if(!readingJobMatches(job,data.source_sha,page,blockId,state.projectId))throw new Error('翻译任务与当前段落不一致，请刷新后重试。');
+      block.translation=job;
+      state.jobs=[job,...state.jobs.filter(j=>j.id!==job.id)];
+      if(!state.disposed){updateReadingResults(page);renderReadingPanel();void refreshJobs();}
+      return job;
+    }finally{state.readingBusy.delete(key);if(!state.disposed)renderReadingPanel();}
+  }
+  async function translateReadingPage() {
+    if(state.readingBatch)return;
+    const page=state.page,data=await loadReadingPage(page);if(!data?.blocks.length)throw new Error('本页没有可翻译文字。');
+    if(data.blocks.length>80)throw new Error('本页段落较多，请逐段选择翻译。');
+    state.readingBatch=true;const status=qs('#reading-batch-status');
+    try{
+      let done=0;
+      for(const block of data.blocks){
+        if(state.disposed)break;
+        await translateReadingBlock(page,block.id);done++;
+        if(status)status.textContent=`已提交 ${done} / ${data.blocks.length} 段，结果逐段显示`;
+      }
+      if(!state.disposed)toast('本页段落已提交，译文会逐段出现。');
+    }finally{state.readingBatch=false;}
+  }
+  function updateReadingJobs() {
+    for(const [page,data] of state.readingPages){
+      for(const block of data.blocks){
+        // Only refresh an ID accepted by the model-aware reading endpoint or
+        // this page's explicit POST. Generic history can include older models.
+        const job=block.translation&&state.jobs.find(j=>j.id===block.translation.id&&readingJobMatches(j,data.source_sha,page,block.id,state.projectId));
+        if(job)block.translation=job;
+      }
+      updateReadingResults(page);
+    }
+    renderReadingPanel();
+  }
+  async function refreshAcceptedReadingJobs() {
+    const known=new Set(state.jobs.map(j=>j.id)),missing=[];
+    for(const [page,data] of state.readingPages)for(const block of data.blocks){
+      const job=blockTranslation(block,page);
+      if(job&&['queued','running'].includes(job.status)&&!known.has(job.id)&&!missing.includes(job.id))missing.push(job.id);
+    }
+    if(!missing.length)return;
+    const start=state.readingPollCursor%missing.length;
+    const batch=[...missing.slice(start),...missing.slice(0,start)].slice(0,12);
+    state.readingPollCursor=(start+batch.length)%missing.length;
+    const results=await Promise.allSettled(batch.map(id=>api('/jobs/'+encodeURIComponent(id))));
+    if(state.disposed)return;
+    for(let i=0;i<results.length;i++)if(results[i].status==='fulfilled'&&results[i].value.id===batch[i])state.jobs.push(results[i].value);
   }
   function updateToolbar() {
     const input=qs('#reader-page'); if(input && document.activeElement!==input)input.value=state.page;
@@ -218,6 +404,10 @@ export async function mountReader({paperId,projectId}) {
         rects=matched.flatMap(pair=>validParagraphRects(pair[side]?.rects));
         if(!matched.length&&side===focus.side)rects=validParagraphRects(focus.rects);
       }
+      if(!rects.length&&side==='original'&&state.readingFocus?.page===page&&state.readingFocus.source_sha===state.paper.sha256){
+        const block=state.readingPages.get(page)?.blocks.find(b=>b.id===state.readingFocus.block_id);
+        rects=validParagraphRects(block?.rects);
+      }
       layer.innerHTML=rects.map(r=>`<span class="paragraph-focus ${side===focus?.side?'source':'counterpart'}" style="left:${r.x*100}%;top:${r.y*100}%;width:${r.width*100}%;height:${r.height*100}%"></span>`).join('');
       if(focus?.page===page&&side===focus.side&&focus.point&&!matched.length){
         layer.insertAdjacentHTML('beforeend',`<span class="paragraph-focus-point" style="left:${focus.point.x*100}%;top:${focus.point.y*100}%"></span>`);
@@ -268,7 +458,7 @@ export async function mountReader({paperId,projectId}) {
   }
   async function refreshParagraphFocus({scroll=false}={}) {
     const focus=state.paragraphFocus,token=state.paragraphSequence;
-    if(state.disposed||!state.paragraphEnabled||!focus)return;
+    if(state.disposed||!state.paragraphEnabled||!focus||state.translationView===false||state.readingMode==='reflow')return;
     if(!paragraphFocusCurrent(focus)){clearParagraphFocus('译文版本已更新，请重新选择段落。笔记草稿仍然保留。');return;}
     const key=paragraphKey(focus.page);
     try{
@@ -293,7 +483,7 @@ export async function mountReader({paperId,projectId}) {
     }
   }
   function focusParagraph(side,page,probe,{scroll=true}={}) {
-    if(!state.paragraphEnabled)return;
+    if(!state.paragraphEnabled||state.translationView===false||state.readingMode==='reflow')return;
     const info=state.pages.get(pageKey(side,page));if(!info)return;
     state.paragraphSequence++;
     for(const controller of state.paragraphRequests.values())controller.abort();state.paragraphRequests.clear();
@@ -308,6 +498,11 @@ export async function mountReader({paperId,projectId}) {
   }
   function unloadPair(page) {
     if(pageProtected(page))return;
+    const row=state.pairs.get(page),reflow=qs(`#reading-page-${page}`);
+    if(state.readingMode==='reflow'&&row&&reflow?.dataset.identity){
+      row.style.minHeight=`${row.getBoundingClientRect().height}px`;
+      reflow.innerHTML=`<div class="reflow-page-heading">第 ${page} 页</div><p class="muted">滚动到此页时载入原文…</p>`;delete reflow.dataset.identity;
+    }
     for(const side of ['original','translation']){
       const key=pageKey(side,page);state.requests.get(key)?.abort();state.requests.delete(key);state.pages.delete(key);
       const host=pageHost(side,page);if(host){host.replaceChildren();delete host.dataset.identity;}
@@ -360,7 +555,10 @@ export async function mountReader({paperId,projectId}) {
       setTimeout(()=>{
         if(!element.isConnected||state.disposed)return;
         const selected=captureSelection(element);
-        if(!selected&&point&&point.x>=0&&point.x<=1&&point.y>=0&&point.y<=1)focusParagraph(side,page,{point});
+        if(!selected&&point&&point.x>=0&&point.x<=1&&point.y>=0&&point.y<=1){
+          if(side==='original')void selectReadingBlock(page,{point});
+          focusParagraph(side,page,{point});
+        }
       },0);
     });
     element.addEventListener('keyup',event=>{if(event.key==='Shift'||(event.key.startsWith('Arrow')&&!event.shiftKey))captureSelection(element);});
@@ -371,7 +569,7 @@ export async function mountReader({paperId,projectId}) {
   }
   async function loadPageSide(side,page,{force=false}={}) {
     const host=pageHost(side,page),key=pageKey(side,page),identity=pageIdentity(side,page);
-    if(!host || state.disposed)return;
+    if(!host || state.disposed||state.readingMode==='reflow'||(side==='translation'&&!state.translationView))return;
     if(!force && host.dataset.identity===identity)return;
     if(!force && state.requests.has(key))return state.requests.get(key).pending;
     if(force){state.requests.get(key)?.abort();state.requests.delete(key);state.pages.delete(key);}
@@ -390,7 +588,10 @@ export async function mountReader({paperId,projectId}) {
       host.innerHTML=`<div class="page-state failed"><strong>第 ${page} 页加载失败</strong><p>${esc(error.message)}</p><button class="button small" data-page-reload="${page}" data-page-side="${side}">重试页面</button></div>`;
     }finally{if(state.requests.get(key)===controller)state.requests.delete(key);finishRequest();}
   }
-  async function loadPair(page) { await Promise.all(['original','translation'].map(side=>loadPageSide(side,page))); }
+  async function loadPair(page) {
+    if(state.readingMode==='reflow'){await renderReadingPage(page);return;}
+    await Promise.all((state.translationView?['original','translation']:['original']).map(side=>loadPageSide(side,page)));
+  }
   function captureSelection(element) {
     const selection=window.getSelection();if(!selection || selection.isCollapsed || !selection.rangeCount)return false;
     const range=selection.getRangeAt(0),layer=element.querySelector('.text-layer');
@@ -404,6 +605,7 @@ export async function mountReader({paperId,projectId}) {
     }).filter(r=>r.width>0&&r.height>0&&r.x<1&&r.y<1);
     if(!rects.length)return true;
     const side=element.dataset.side,page=Number(element.dataset.page),info=state.pages.get(pageKey(side,page));if(!info)return true;
+    if(side==='original')void selectReadingBlock(page,{rects});
     focusParagraph(side,page,{rects});
     // Viewing another linked paragraph must not replace an unsaved note or the
     // user's native text selection. The existing composer retains its draft.
@@ -486,7 +688,7 @@ export async function mountReader({paperId,projectId}) {
       if(state.paragraphFocus?.page===page)focusedPageChanged=true;
       const key=pageKey('translation',page);state.requests.get(key)?.abort();state.requests.delete(key);state.pages.delete(key);
       const host=pageHost('translation',page);if(host)delete host.dataset.identity;
-      if(state.near.has(page)||pageProtected(page))work.push(loadPageSide('translation',page,{force:true}));
+      if(state.readingMode==='pdf'&&state.translationView&&(state.near.has(page)||pageProtected(page)))work.push(loadPageSide('translation',page,{force:true}));
     }
     updateTranslationProgress();renderParagraphHighlights();
     // Page frames never change dimensions and the original column stays mounted.
@@ -507,10 +709,13 @@ export async function mountReader({paperId,projectId}) {
       ]);
       if(state.disposed||sequence!==refreshSequence)return;
       state.jobs=list(jobs).sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||''));
+      await refreshAcceptedReadingJobs();
+      if(state.disposed||sequence!==refreshSequence)return;
+      updateReadingJobs();
       await refreshTranslationPages(manifest);
       if(state.tab==='ai')renderSidebar();
       // A job can become retryable without changing the failed page's status.
-      for(const page of state.near){if(translationPage(page)?.status==='failed')placeholder('translation',page);}
+      for(const page of state.near){if(state.readingMode==='pdf'&&state.translationView&&translationPage(page)?.status==='failed')placeholder('translation',page);}
     }catch(error){
       if(!state.disposed&&sequence===refreshSequence){const badge=qs('#translation-progress');if(badge)badge.textContent='状态更新失败，稍后重试';}
     }finally{
@@ -532,6 +737,7 @@ export async function mountReader({paperId,projectId}) {
   async function jumpToNote(note) {
     if(!note)return;
     if(!isCurrentAnchor(note)){toast('这条笔记属于旧版 PDF，原句已保留，不会跳转到当前版本的相同位置。');return;}
+    if(state.readingMode!=='pdf'||(note.side==='translation'&&!state.translationView))await setReadingDisplay('pdf',note.side==='translation'||state.translationView);
     await goToPage(note.page,{remember:false});
     const scroll=qs('#document-scroll'),element=pageHost(note.side,note.page)?.querySelector('.pdf-page'),rect=note.rects?.[0];
     if(element&&rect){scroll.scrollTop+=element.getBoundingClientRect().top-scroll.getBoundingClientRect().top+rect.y*element.clientHeight-scroll.clientHeight*.3;readPosition();}
@@ -540,6 +746,7 @@ export async function mountReader({paperId,projectId}) {
   app.addEventListener('input',event=>{if(event.target.id==='note-draft')state.draft=event.target.value;});
   app.addEventListener('change',async event=>{
     try{
+      if(event.target.id==='translation-view-toggle'){await setReadingDisplay(state.readingMode,event.target.checked);return;}
       if(event.target.id==='paragraph-link-toggle'){
         state.paragraphEnabled=event.target.checked;
         clearParagraphFocus(state.paragraphEnabled?'段落联动已开启。单击段落可定位另一侧，划词仍保留精确笔记。':'段落联动已关闭，划词与笔记仍可使用。');
@@ -566,9 +773,21 @@ export async function mountReader({paperId,projectId}) {
     if(link){event.preventDefault();if(!canReplaceDraft())return;readPosition();if(await persistPosition())location.href=link.href;return;}
     const button=event.target.closest('button');if(!button)return;
     try{
+      if(button.dataset.readerMode){await setReadingDisplay(button.dataset.readerMode,state.translationView);return;}
+      if(button.dataset.readingBlock){await selectReadingBlock(Number(button.dataset.readingPage),{blockId:button.dataset.readingBlock});return;}
+      if(button.dataset.readingTranslate){
+        button.disabled=true;const page=Number(button.dataset.readingPage);
+        await selectReadingBlock(page,{blockId:button.dataset.readingTranslate});
+        await translateReadingBlock(page,button.dataset.readingTranslate);return;
+      }
+      if(button.dataset.readingPdf){
+        const page=Number(button.dataset.readingPdf);
+        await setReadingDisplay('pdf',state.translationView);await goToPage(page);return;
+      }
+      if(button.dataset.readingReload){const page=Number(button.dataset.readingReload);state.readingPages.delete(page);await renderReadingPage(page);return;}
       if(button.dataset.readerTab){state.tab=button.dataset.readerTab;renderSidebar();return;}
       if(button.dataset.noteColor){state.color=button.dataset.noteColor;renderSidebar();renderHighlights();return;}
-      if(button.dataset.aiKind){button.disabled=true;await createJob(button.dataset.aiKind);return;}
+      if(button.dataset.aiKind){button.disabled=true;if(button.dataset.aiKind==='translate')await setReadingDisplay('pdf',true);await createJob(button.dataset.aiKind);return;}
       if(button.dataset.jobSelect){state.selectedJob=button.dataset.jobSelect;renderSidebar();return;}
       if(button.dataset.jobCancel){await api('/jobs/'+encodeURIComponent(button.dataset.jobCancel)+'/cancel',{method:'POST'});await refreshJobs();return;}
       if(button.dataset.jobRetry){button.disabled=true;const result=await api('/jobs/'+encodeURIComponent(button.dataset.jobRetry)+'/retry',{method:'POST'});state.selectedJob=result.id;await refreshJobs();return;}
@@ -589,6 +808,8 @@ export async function mountReader({paperId,projectId}) {
       if(button.dataset.noteSummary){button.disabled=true;await createJob('selection-summary',button.dataset.noteSummary);return;}
       if(button.dataset.pageReload){await loadPageSide(button.dataset.pageSide,Number(button.dataset.pageReload),{force:true});return;}
       switch(button.dataset.readerAction){
+        case'close-reading-panel':{const page=state.readingFocus?.page;state.readingSequence++;state.readingFocus=null;renderReadingPanel();renderParagraphHighlights();if(page)updateReadingResults(page);break;}
+        case'translate-reading-page':button.disabled=true;await translateReadingPage();break;
         case'prev':await goToPage(state.page-1);break;
         case'next':await goToPage(state.page+1);break;
         case'zoom-in':case'zoom-out':await setZoom(state.zoom+(button.dataset.readerAction==='zoom-in'?25:-25));break;
@@ -616,6 +837,9 @@ export async function mountReader({paperId,projectId}) {
     state.requests.clear();
     for(const controller of state.paragraphRequests.values())controller.abort();
     state.paragraphRequests.clear();
+    state.readingSequence++;
+    for(const controller of state.readingRequests.values())controller.abort();
+    state.readingRequests.clear();
   },()=>{
     state.disposed=false;
     if(!observer||!state.pairs.size)return;

@@ -34,5 +34,5 @@ def test_registry_entries_are_complete_and_safe():
             assert path.is_relative_to(skill_root)
             assert path.is_file(), f"Missing skill reference: {target}"
         job_kinds.extend(item["job_kinds"])
-    assert set(job_kinds) == {"guide", "brief", "selection-summary", "translate", "notes-summary"}
+    assert set(job_kinds) == {"guide", "brief", "selection-summary", "translate", "paragraph-translate", "notes-summary"}
     assert len(job_kinds) == len(set(job_kinds))

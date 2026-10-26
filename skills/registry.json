@@ -43,7 +43,8 @@
       "name": "论文对照翻译",
       "description": "为论文原文提供准确中文翻译与术语约束，保留论证、公式、数值、图表编号和引用。用于全文对照翻译、段落翻译及 BabelDOC 翻译任务的质量规则；保持原始 PDF 与译文版本、页码和版式对应，不承担摘要、导读或读后笔记总结。",
       "job_kinds": [
-        "translate"
+        "translate",
+        "paragraph-translate"
       ],
       "modes": [
         "translation"

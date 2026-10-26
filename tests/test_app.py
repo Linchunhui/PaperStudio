@@ -31,6 +31,15 @@ def test_bootstrap_reader_and_same_origin(tmp_path, monkeypatch):
         sources = client.get('/api/sources').json()
         assert len(sources['sources']) == 144
         assert client.get('/api/capabilities').json()['ai_configured'] is False
+        # Opening either view is text extraction only, even when a translated
+        # demo PDF exists. It must not enqueue an AI task by itself.
+        reading = client.get(f"/api/papers/{paper['id']}/pages/1/reading", params={'project_id': 'inbox'})
+        assert reading.status_code == 200, reading.text
+        assert reading.json()['source_sha'] == paper['sha256']
+        assert reading.json()['blocks'] and all(block['translation'] is None for block in reading.json()['blocks'])
+        assert client.get('/api/jobs').json() == []
+        assert client.get('/api/catalog/stats').status_code == 200
+        assert client.get('/api/catalog', params={'page_size': 1}).status_code == 200
         assert client.post('/api/projects', json={'name':'blocked'}, headers={'Origin':'https://untrusted.example'}).status_code == 403
         assert client.post('/api/projects', json={'name':'allowed'}, headers={'Origin':'http://testserver'}).status_code == 201
         assert client.get('/data/paperstudio.sqlite3').status_code == 404
@@ -67,6 +76,11 @@ def test_import_and_discovery_routes_share_application_lifecycle(tmp_path, monke
         assert imports.run_once()  # Parse all pages.
         parsed = client.get(f'/api/papers/{paper_id}/parsed').json()
         assert len(parsed['pages']) == 2 and '[PDF 第 2 页]' in parsed['fulltext']
+        reading = client.get(f'/api/papers/{paper_id}/pages/2/reading', params={'project_id': 'inbox'}).json()
+        assert reading['blocks'][0]['text'].startswith('Original page 2')
+        assert client.post(f'/api/papers/{paper_id}/reading/translate', json={
+            'project_id': 'inbox', 'page': 2, 'block_id': reading['blocks'][0]['id'],
+            'source_sha': reading['source_sha']}).status_code == 409  # Configure AI explicitly.
         assert imports.run_once()  # Missing model blocks only its own step.
         settled = client.get(f"/api/imports/{plan['id']}").json()
         assert settled['status'] == 'blocked'

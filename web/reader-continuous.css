@@ -43,6 +43,49 @@
 .paragraph-focus.counterpart{border-color:#358776;background:#69bca71b}
 .paragraph-focus-point{position:absolute;width:10px;height:10px;transform:translate(-50%,-50%);border:2px solid #4c92bd;background:#e9f5ffb3;border-radius:50%;box-sizing:border-box}
 .continuous-reader #reader-hint{font-size:12px;color:#617259}
+.reader-mode-controls{display:flex;align-items:center;gap:3px;flex-wrap:wrap;padding:3px;background:#edf2e8;border:1px solid #d9e2d2;border-radius:7px}
+.reader-mode-controls>button{border:0;background:transparent;color:#61715b;border-radius:4px;padding:7px 10px;font:inherit;font-size:12px;cursor:pointer}
+.reader-mode-controls>button.active{color:#285e45;background:#fff;box-shadow:0 1px 3px #263d2514}
+.reader-mode-controls>label{display:flex;align-items:center;gap:5px;padding:0 7px;font-size:12px;white-space:nowrap;cursor:pointer;color:#52684d}
+.reader-mode-controls input{accent-color:#367b67;width:14px;height:14px}
+.reading-pdf .reflow-only,.reading-reflow .pdf-only,.reading-reflow .page-slot{display:none!important}
+.translation-off .bilingual-only,.translation-off .reflow-translation-actions,.translation-off .pdf-bilingual-only,.reading-reflow .pdf-bilingual-only{display:none!important}
+.reading-pdf.translation-off .document-column-labels>div+div,.reading-pdf.translation-off .page-slot:nth-child(2){display:none}
+.reading-pdf.translation-off .document-column-labels,.reading-pdf.translation-off .page-pair,.reading-reflow .page-pair{grid-template-columns:minmax(0,1fr)}
+.reading-pdf.translation-off .document-pages{max-width:1080px;margin:0 auto}
+.reflow-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 20px;background:#f8faf5;border-bottom:1px solid #dfe6d9;font-size:12px;line-height:1.6;color:#6b7965;flex-wrap:wrap}
+.reflow-translation-actions{display:flex;align-items:center;gap:10px}
+.reflow-toolbar .text-button{font-size:12px;color:#286b56}
+.reading-reflow .document-pages{max-width:1000px;margin:0 auto;padding:24px 30px 50px}
+.reflow-page{padding:30px 42px 38px;background:#fff;border:1px solid #e2e8dc;border-radius:5px;box-shadow:0 3px 14px #2c3f2709;font-size:16px;line-height:1.85;color:#334139;overflow-wrap:anywhere;min-width:0}
+.reflow-page-heading{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;margin-bottom:20px;border-bottom:1px solid #e7ece2;font-size:12px;letter-spacing:.03em;color:#75836d}
+.reflow-page-heading .text-button{font-size:12px;color:#50724e}
+.reflow-block{position:relative;padding:10px 12px;margin:0 -12px 18px;border-left:2px solid transparent;border-radius:3px}
+.reflow-block.selected{background:#f4f8f1;border-left-color:#7ca16a}
+.reflow-source{white-space:pre-wrap;cursor:text;outline-offset:5px}
+.reflow-heading .reflow-source{font-size:1.2em;font-weight:600;color:#263d31;line-height:1.55}
+.reflow-block-actions{display:flex;align-items:center;gap:14px;margin-top:7px;opacity:.65;flex-wrap:wrap}
+.reflow-block:hover .reflow-block-actions,.reflow-block:focus-within .reflow-block-actions{opacity:1}
+.reflow-block-actions .text-button{font-size:11px;color:#6a7d62;line-height:1.6}
+.reflow-translation{margin-top:12px;padding:12px 16px;background:#f4f7f1;border-left:2px solid #c0d2b4;color:#405847;font-size:.95em;line-height:1.9}
+.reflow-translation .muted{font-size:13px}
+.reflow-notice,.reflow-empty{font-size:13px;color:#806e46;background:#faf7ed;padding:10px 14px;border-radius:4px;line-height:1.75}
+.reflow-empty{padding:24px}
+.paragraph-translation-panel{flex:0 1 auto;min-height:120px;max-height:44%;overflow:auto;padding:15px 18px;border-bottom:1px solid #d8e3d2;background:#f7faf4;overscroll-behavior:contain;scrollbar-width:thin}
+.paragraph-translation-panel[hidden]{display:none}
+.paragraph-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#345c45;font-size:13px}
+.paragraph-panel-heading strong{font-weight:500}.paragraph-panel-heading span{font-weight:400;font-size:11px;color:#7b8b74;margin-left:8px}
+.paragraph-panel-heading>button{font-size:22px;line-height:1;padding:0 4px;color:#82917a}
+.paragraph-translation-panel blockquote{margin:12px 0;padding:0 0 0 10px;border-left:2px solid #c8d7be;white-space:pre-wrap;font-size:12px;line-height:1.75;max-height:120px;overflow:auto;color:#6a7663}
+.paragraph-panel-result{font-size:13px;line-height:1.85;color:#3c5544;overflow-wrap:anywhere}
+.paragraph-result{white-space:pre-wrap}
+.paragraph-panel-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.paragraph-panel-actions .text-button{font-size:12px;color:#50724e}
+.paragraph-panel-note{font-size:10px;line-height:1.6;margin:10px 0 0;color:#8c9986}
+.paragraph-working{font-size:12px;color:#6d855b}.paragraph-error{color:#a06447;font-size:12px}
+.reading-reflow .reader-zoom-controls select{max-width:74px}
+@media(max-width:1250px){.reader-mode-controls>button{padding:6px 8px}.reading-reflow .document-pages{padding:18px}.reflow-page{padding:24px 28px}}
+@media(max-width:1000px){.continuous-reader.translation-off .continuous-columns,.continuous-reader.reading-reflow .continuous-columns{grid-template-columns:minmax(420px,1fr) 300px}.reflow-page{padding:22px}.reflow-toolbar{padding:10px 14px}.paragraph-translation-panel{padding:12px}}
 @media(min-width:1700px){.continuous-reader .continuous-columns{grid-template-columns:minmax(0,1fr) 390px}.document-pages{padding:24px 26px 44px}.page-pair{gap:24px}}
 @media(max-width:1250px){.continuous-reader .continuous-columns{grid-template-columns:minmax(0,1fr) 320px}.continuous-mode-label{display:none}.document-column-labels>div{padding:10px 12px;gap:7px 9px}.document-pages{padding:16px 12px 35px}.page-pair{gap:12px}}
 @media(max-width:1000px){.continuous-reader .continuous-columns{grid-template-columns:660px 320px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:#aabd97 #edf1e8}.continuous-reader .reader-context label{display:flex}.continuous-reader .reader-context select{max-width:145px}.continuous-reader .reader-header-actions .button{font-size:11px}.continuous-reader .reader-toolbar{flex-wrap:wrap}.continuous-reader .reader-footer>span:last-child{display:none}}

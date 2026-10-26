@@ -21,7 +21,7 @@ import httpx
 from . import core, pdf
 
 SKILL_IDS = ("paper-guide", "paper-brief", "paper-translate", "reading-notes-summary")
-KIND_SKILL = {"guide": "paper-guide", "brief": "paper-brief", "selection-summary": "paper-brief", "notes-summary": "reading-notes-summary", "translate": "paper-translate"}
+KIND_SKILL = {"guide": "paper-guide", "brief": "paper-brief", "selection-summary": "paper-brief", "notes-summary": "reading-notes-summary", "translate": "paper-translate", "paragraph-translate": "paper-translate"}
 
 
 class ConfigurationError(ValueError):

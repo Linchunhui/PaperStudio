@@ -29,6 +29,8 @@
 | `GET /papers/{id}/file` | 原始 PDF 字节；`side=original/translation` |
 | `GET /papers/{id}/page-manifest` | 全文页面尺寸，用于连续滚动占位 |
 | `GET /papers/{id}/translation-pages` | 翻译批次与逐页状态；未完成时也可读取就绪页 |
+| `GET /papers/{id}/pages/{n}/reading` | 提取重排文字块，可按 `project_id` 附当前版本段落翻译任务 |
+| `POST /papers/{id}/reading/translate` | 显式提交一个原文段落的翻译，返回普通后台任务 |
 | `GET /papers/{id}/pages/{n}/alignment` | 当前页的原文/译文段落对应、归一化矩形和版本身份 |
 | `GET /papers/{id}/pages/{n}` | 页面尺寸、文字坐标、版本与 SVG URL |
 | `GET /papers/{id}/pages/{n}.svg` | PDF 页面直接生成的 SVG |
@@ -51,6 +53,10 @@
 | `GET /discovery/config` | 搜索 provider 是否配置及来源适配方式 |
 | `GET /discovery/search` | `q`、`scope=web/arxiv/hf`、`page`；不同搜索范围明确分离 |
 | `GET /discovery/feed` | HF、量子位、机器之心的公开内容、来源状态与推荐理由 |
+| `GET /catalog` | 论文索引搜索、年份/来源/机构筛选、排序和分页 |
+| `GET /catalog/stats` | 实际收录量、覆盖范围、缺失信息与导入状态 |
+| `POST /catalog/import` | 上传 JSON/CSV 索引，校验后合并，不下载 PDF |
+| `POST /catalog/refresh-hf` | 按指定周显式更新 HF 榜单快照 |
 | `GET /sources` | 144 条来源登记与发现渠道 |
 | `GET /health` | 服务健康状态 |
 
@@ -58,7 +64,7 @@
 
 ## 异步任务
 
-支持 `guide`、`brief`、`selection-summary`、`notes-summary`、`translate`。`brief` 支持 `abstract/cards/summary/all`。任务状态为 `queued/running/succeeded/failed/cancelled/interrupted`。
+支持 `guide`、`brief`、`selection-summary`、`notes-summary`、`translate`、`paragraph-translate`。`brief` 支持 `abstract/cards/summary/all`。任务状态为 `queued/running/succeeded/failed/cancelled/interrupted`。
 
 全文导读/摘要提取全部页面文字并保留页码；没有图像视觉核验。超出输入限制时明确失败，不静默截断。选区摘要仅使用对应批注；读后总结仅使用该项目笔记快照。用户笔记与 PDF 内容被视为证据数据，不作为覆盖角色规则的指令。
 
@@ -124,3 +130,31 @@ BabelDOC 以显式 `--working-dir` 输出实际翻译记录，不开启会修改
 搜索与推荐返回 `items` 以及每个来源的 `statuses`。条目包含 `kind=paper/article`、原始 URL、发布时间（缺失则为空）、发现来源、摘要片段和推荐理由。来源状态包括 `ok/cached/stale/error/unconfigured`；`fetched_at` 是抓取时间，不能替代文章发布时间。全网服务未配置时搜索接口返回 409；单个推荐来源失败不会清空其他来源。
 
 首版媒体入口为公开网站内容：量子位 RSS，机器之心经搜索 provider 的站内查询。没有声称已接入微信公众号、X 或完整历史消息流。配置搜索 provider 可查 README；本机 PDF、笔记与模型密钥不会作为推荐查询自动发送。
+
+
+## 重排阅读与段落翻译
+
+阅读器的展示模式（原 PDF / 重排）与翻译开关独立，默认原 PDF 且关闭译文。读取重排文本、切换展示、打开已有译文都只读取数据。翻译必须由用户明确发起。
+
+`GET /papers/{id}/pages/{n}/reading?project_id=...` 返回 `paper_id/page/source_sha/extraction_version/blocks/has_text/warnings`。每块含稳定 `id`、`type=heading|paragraph`、`text`、原 PDF 的规范化 `rects` 以及可选 `translation` 任务。块 ID 绑定原文内容哈希、页码、提取版本、文本和坐标，不通过段落序号跨版本猜配。接口不保证图表、公式或异常多栏结构恢复为 Markdown。
+
+```json
+{
+  "project_id": "inbox",
+  "page": 1,
+  "block_id": "从 reading 响应取得的块 ID",
+  "source_sha": "从 reading 响应取得的原 PDF SHA256"
+}
+```
+
+上述请求发送至 `POST /papers/{id}/reading/translate`。服务端重新解析并验证块，不接受客户端自行替换的待翻译文字。响应为 `kind=paragraph-translate` 的普通任务，带 `page/block_id/source_sha`；完成后的 `result_markdown` 仅含中文译文。任务固定实际段落提示词版本及模型配置，同一项目的相同输入复用排队或成功结果；模型配置变化时不混用旧结果。使用现有 `/jobs/{id}`、取消及重试接口。
+
+文本段落翻译不需要 BabelDOC，也不产生译文 PDF。PDF 版式翻译与文本段落翻译保存各自的结果，二者不会互相冒充。重排模式每段完成后独立显示，不等待本页或全文全部完成。
+
+## 可更新论文索引
+
+`catalog` 保存论文元数据与来源证据，与已下载的 `papers` 独立。查询索引不下载 PDF、不调用模型；点击加入项目后沿用现有链接导入及处理选项。
+
+`GET /catalog` 支持 `q/year/source/institution/sort/page/page_size`。`year` 指论文发表年份，HF 上榜年份与周次另存于来源记录；排序的点赞与 Star 为采集快照，缺失值为 null，不填成 0。合并时保留不同来源和榜单周次；机构归属依赖导入材料，待核标记保留。
+
+JSON 格式可为论文数组，或 `{"dataset": {...}, "papers": [...]}`；CSV 列映射及更新命令见 README。导入先校验，再在事务中合并。单份导入失败不破坏已有索引，失败原因可在统计页查看。HF 指定周更新来自官方接口，记录抓取时间和查询周键；它是本次查询得到的历史周页面快照，不声称还原当周冻结的热度。
