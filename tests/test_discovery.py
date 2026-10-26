@@ -204,3 +204,15 @@ def test_failed_searx_engines_are_not_reported_as_zero_matches(client, monkeypat
     network(monkeypatch, lambda r: httpx.Response(200, json={"results": [], "unresponsive_engines": [["engine", "upstream timeout"]]}))
     result = client.get("/api/discovery/search", params={"q": "OCR"}).json()
     assert result["items"] == [] and result["statuses"][0]["status"] == "error"
+
+
+
+def test_direction_filter_marks_heuristics_and_retains_unknown_topic():
+    a = discovery._item('hf', 'Robot planning with language model reasoning', 'https://arxiv.org/abs/2601.00001')
+    b = discovery._item('web', 'Untitled mechanisms', 'https://example.org/a')
+    rows, facets = discovery.direction_view([a, b])
+    assert rows[1]['directions'] == ['未分类']
+    assert all(p['direction_evidence']['status'] == 'heuristic-unverified' for p in rows)
+    selected, _ = discovery.direction_view([a, b], '机器人与具身智能')
+    assert [p['id'] for p in selected] == [a['id']]
+    assert {f['name'] for f in facets} >= {'未分类', '机器人与具身智能'}

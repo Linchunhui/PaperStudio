@@ -1,7 +1,23 @@
 """Integrated application boundaries and true-PDF bootstrap."""
+from contextlib import contextmanager
 from fastapi.testclient import TestClient
-from app import core, imports, jobs
+from app import auth, core, imports, jobs
 from app.main import app
+
+
+@contextmanager
+def authenticated_client():
+    """Exercise the real setup/login boundary and preserve worker ownership."""
+    with TestClient(app) as client:
+        response = client.post('/api/auth/setup', json={
+            'setup_token': (core.DATA_DIR / 'bootstrap-token').read_text().strip(),
+            'username': 'admin', 'password': 'test-admin-password-long',
+        })
+        assert response.status_code == 201, response.text
+        session = response.json()
+        client.headers['X-CSRF-Token'] = session['csrf_token']
+        with auth.as_user(session['user']['id']):
+            yield client
 
 
 def test_bootstrap_reader_and_same_origin(tmp_path, monkeypatch):
@@ -9,7 +25,7 @@ def test_bootstrap_reader_and_same_origin(tmp_path, monkeypatch):
     monkeypatch.setenv('PAPERSTUDIO_SEED_DEMO', '1')
     monkeypatch.delenv('AI_BASE_URL', raising=False)
     monkeypatch.delenv('AI_MODEL', raising=False)
-    with TestClient(app) as client:
+    with authenticated_client() as client:
         papers = client.get('/api/papers').json()
         assert len(papers) == 1
         paper = papers[0]
@@ -62,7 +78,7 @@ def test_import_and_discovery_routes_share_application_lifecycle(tmp_path, monke
             page = document.new_page()
             page.insert_text((60, 80), f'Original page {number + 1}: evidence for the method.')
         content = document.tobytes()
-    with TestClient(app) as client:
+    with authenticated_client() as client:
         config = client.get('/api/discovery/config').json()
         assert config['web_search']['configured'] is False
         assert client.get('/api/discovery/search', params={'q': 'document retrieval', 'scope': 'web'}).status_code == 409
@@ -90,3 +106,4 @@ def test_import_and_discovery_routes_share_application_lifecycle(tmp_path, monke
         assert position.status_code == 200 and position.json()['page_offset'] == 0.43
         for path in ('workspace.css', 'reader-continuous.css', 'app.js', 'reader.js'):
             assert client.get('/static/' + path).status_code == 200
+

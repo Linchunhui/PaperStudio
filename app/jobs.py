@@ -3,18 +3,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 
 from fastapi import HTTPException
 
-from . import ai, core, translations
+from . import ai, core, translations, auth
 
-TRANSLATION_PIPELINE_VERSION = "page-pdf-paragraph-tracking-v1"
+logger = logging.getLogger(__name__)
+
+TRANSLATION_PIPELINE_VERSION = "page-pdf-paragraph-tracking-clean-v2"
 
 _STOP = threading.Event()
 _WAKE = threading.Event()
 _STATE_LOCK = threading.RLock()
 _THREAD: threading.Thread | None = None
+_THREADS: dict[str, threading.Thread] = {}
 KINDS = set(ai.KIND_SKILL)
 MODES = {"abstract", "cards", "summary", "all"}
 TERMINAL = {"succeeded", "failed", "cancelled", "interrupted"}
@@ -32,31 +36,97 @@ def init_jobs():
             owner_id TEXT NOT NULL DEFAULT 'local',
             FOREIGN KEY(paper_id) REFERENCES papers(id),
             FOREIGN KEY(project_id) REFERENCES projects(id))""")
+        if "visibility" not in {r["name"] for r in con.execute("PRAGMA table_info(jobs)")}:
+            con.execute("ALTER TABLE jobs ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'")
         con.execute("CREATE INDEX IF NOT EXISTS jobs_dedupe ON jobs(dedupe_key,status)")
         con.execute("CREATE INDEX IF NOT EXISTS jobs_scope ON jobs(paper_id,project_id,created_at)")
 
 
-def _row(job_id: str) -> dict:
+def _shared_sources_valid(row):
+    try:
+        payload = json.loads(row["payload"])
+        if not isinstance(payload, dict) or not isinstance(payload.get("annotations", []), list):
+            return False
+        notes = payload.get("annotations", []) + ([payload["annotation"]] if payload.get("annotation") else [])
+        if any(not isinstance(note, dict) or not note.get("id") for note in notes):
+            return False
+    except (ValueError, TypeError):
+        return False
     with core.db() as con:
-        value = con.execute("SELECT * FROM jobs WHERE id=? AND owner_id='local'", (job_id,)).fetchone()
-    if not value:
-        raise HTTPException(404, "任务不存在")
+        for note in notes:
+            current = con.execute("SELECT * FROM annotations WHERE id=? AND project_id=?", (note["id"], row["project_id"])).fetchone()
+            if not current or dict(current).get("visibility") != "shared":
+                return False
+            if any(current[k] != note.get(k) for k in ("note", "quote", "source_sha")):
+                return False
+    return True
+
+
+def can_view(row):
+    row = dict(row)
+    try:
+        core.require_membership(row["paper_id"], row["project_id"])
+        return row["owner_id"] == auth.current_user_id() or (row.get("visibility") == "shared" and _shared_sources_valid(row))
+    except HTTPException:
+        return False
+
+
+def _row(job_id: str, *, owner_only=False) -> dict:
+    with core.db() as con:
+        value = con.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if not value or not can_view(value) or (owner_only and value["owner_id"] != auth.current_user_id()):
+        raise HTTPException(404, "任务不存在或无权访问")
     return dict(value)
+
+
+def set_visibility(job_id: str, visibility: str):
+    row = _row(job_id, owner_only=True)
+    if visibility not in {"private", "shared"}:
+        raise HTTPException(422, "共享范围无效")
+    if visibility == "shared":
+        core.get_project(row["project_id"], write=True)
+        if not _shared_sources_valid(row):
+            raise HTTPException(409, "结果包含尚未共享或已经修改的私人笔记，不能共享该结果。请先共享对应笔记并重新生成。")
+    with core.db() as con:
+        con.execute("UPDATE jobs SET visibility=?,updated_at=? WHERE id=? AND owner_id=?", (visibility, core.now(), job_id, auth.current_user_id()))
+    return get_job(job_id)
 
 
 def public_job(row: dict) -> dict:
     result = {key: value for key, value in row.items() if key not in {"payload", "dedupe_key", "owner_id"}}
-    result["coverage"] = json.loads(row.get("coverage") or "{}")
-    payload = json.loads(row["payload"])
-    result["source_sha"] = payload["source_sha"]
-    result["skill_id"] = payload["skill"]["id"]
-    result["skill_version"] = payload["skill"]["sha256"]
+    result["author_id"] = row.get("owner_id")
+    result["can_edit"] = row.get("owner_id") == auth.current_user_id()
+    result["can_share"] = False
+    if result["can_edit"]:
+        try:
+            core.get_project(row["project_id"], write=True)
+            result["can_share"] = _shared_sources_valid(row)
+        except HTTPException:
+            pass
+    try:
+        result["coverage"] = json.loads(row.get("coverage") or "{}")
+        if not isinstance(result["coverage"], dict):
+            result["coverage"] = {}
+    except (ValueError, TypeError):
+        result["coverage"] = {}
+    try:
+        payload = json.loads(row["payload"])
+        if not isinstance(payload, dict):
+            payload = {}
+    except (ValueError, TypeError):
+        payload = {}
+    skill = payload.get("skill") if isinstance(payload.get("skill"), dict) else {}
+    result["source_sha"] = payload.get("source_sha")
+    result["skill_id"] = skill.get("id")
+    result["skill_version"] = skill.get("sha256")
     result["translation_run_id"] = payload.get("translation_run_id")
     if payload.get("kind") == "paragraph-translate":
-        result["page"] = payload["paragraph"]["page"]
-        result["block_id"] = payload["paragraph"]["id"]
-        result["skill_adapter"] = payload["skill"].get("adapter")
-        result["translation_model"] = payload["provider"]["model"]
+        block = payload.get("paragraph") if isinstance(payload.get("paragraph"), dict) else {}
+        provider = payload.get("provider") if isinstance(payload.get("provider"), dict) else {}
+        result["page"] = block.get("page")
+        result["block_id"] = block.get("id")
+        result["skill_adapter"] = skill.get("adapter")
+        result["translation_model"] = provider.get("model")
     return result
 
 
@@ -65,27 +135,26 @@ def get_job(job_id: str) -> dict:
 
 
 def list_jobs(paper_id: str | None = None, project_id: str | None = None) -> list[dict]:
-    query, args = "SELECT * FROM jobs WHERE owner_id='local'", []
+    projects = core.visible_project_ids()
+    if not projects:
+        return []
+    query = "SELECT * FROM jobs WHERE (owner_id=? OR visibility='shared') AND project_id IN (" + ",".join("?" for _ in projects) + ")"
+    args = [auth.current_user_id(), *projects]
     if paper_id:
         core.get_paper(paper_id)
         query += " AND paper_id=?"
         args.append(paper_id)
     if project_id:
-        core.get_project(project_id)
+        project_id = core.get_project(project_id)["id"]
         query += " AND project_id=?"
         args.append(project_id)
     with core.db() as con:
         rows = con.execute(query + " ORDER BY created_at DESC, rowid DESC LIMIT 250", args).fetchall()
-    return [public_job(dict(row)) for row in rows]
+    return [public_job(dict(row)) for row in rows if can_view(row)]
 
 
 def _membership(paper_id: str, project_id: str):
-    core.get_paper(paper_id)
-    core.get_project(project_id)
-    with core.db() as con:
-        found = con.execute("SELECT 1 FROM project_papers WHERE paper_id=? AND project_id=?", (paper_id, project_id)).fetchone()
-    if not found:
-        raise HTTPException(409, "先将论文加入当前项目，再安排该项目的处理任务")
+    return core.require_membership(paper_id, project_id)
 
 
 def _configuration(kind: str):
@@ -104,7 +173,11 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
         raise HTTPException(422, "未知任务类型或输出模式")
     if force and kind != "translate":
         raise HTTPException(422, "只有翻译任务支持显式重新生成")
+    project_id = core.get_project(project_id)["id"]
     _membership(paper_id, project_id)
+    if kind == "translate":
+        core.require_membership(paper_id, project_id, write=True)
+        core.get_paper(paper_id, write=True)
     cfg = _configuration(kind)
     paper = core.get_paper(paper_id)
     try:
@@ -147,7 +220,7 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
     digest = hashlib.sha256(text.encode()).hexdigest()
     with _STATE_LOCK, core.db() as con:
         con.execute("BEGIN IMMEDIATE")
-        candidates = con.execute("SELECT * FROM jobs WHERE dedupe_key=? AND status IN ('queued','running','succeeded') AND owner_id='local' ORDER BY created_at DESC", (digest,)).fetchall()
+        candidates = con.execute("SELECT * FROM jobs WHERE dedupe_key=? AND status IN ('queued','running','succeeded') AND owner_id=? ORDER BY created_at DESC", (digest, auth.current_user_id())).fetchall()
         current = con.execute("SELECT active_translation_run_id FROM papers WHERE id=?", (paper_id,)).fetchone()
         old = next((r for r in candidates if kind != "translate" or (current["active_translation_run_id"] and json.loads(r["payload"]).get("translation_run_id") == current["active_translation_run_id"])), None)
         # Explicit regeneration bypasses completed translations, for example
@@ -162,7 +235,7 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
             payload["translation_run_id"] = core.uid()
             payload["schema_version"] = 2
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        con.execute("INSERT INTO jobs(id,paper_id,project_id,kind,mode,status,stage,payload,dedupe_key,created_at,updated_at) VALUES(?,?,?,?,?,'queued','等待执行',?,?,?,?)", (job_id, paper_id, project_id, kind, mode, text, digest, now, now))
+        con.execute("INSERT INTO jobs(id,paper_id,project_id,kind,mode,status,stage,payload,dedupe_key,created_at,updated_at,owner_id) VALUES(?,?,?,?,?,'queued','等待执行',?,?,?,?,?)", (job_id, paper_id, project_id, kind, mode, text, digest, now, now, auth.current_user_id()))
         if kind == "translate":
             translations.create_run(con, payload, job_id, payload["translation_run_id"])
     _WAKE.set()
@@ -170,21 +243,30 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
 
 
 def cancel(job_id: str) -> dict:
+    _row(job_id, owner_only=True)
     with _STATE_LOCK, core.db() as con:
         con.execute("BEGIN IMMEDIATE")
-        changed = con.execute("UPDATE jobs SET status='cancelled',stage='已取消',updated_at=? WHERE id=? AND owner_id='local' AND status IN ('queued','running')", (core.now(), job_id)).rowcount
+        changed = con.execute("UPDATE jobs SET status='cancelled',stage='已取消',updated_at=? WHERE id=? AND owner_id=? AND status IN ('queued','running')", (core.now(), job_id, auth.current_user_id())).rowcount
         if changed:
             translations.stop_run(con, job_id, "cancelled")
     return get_job(job_id)
 
 
 def retry(job_id: str) -> dict:
-    row = _row(job_id)
+    row = _row(job_id, owner_only=True)
     if row["status"] not in {"failed", "cancelled", "interrupted"}:
         raise HTTPException(409, "只有失败、中断或已取消任务可以重试")
     _membership(row["paper_id"], row["project_id"])
+    if row["kind"] == "translate":
+        core.require_membership(row["paper_id"], row["project_id"], write=True)
+        core.get_paper(row["paper_id"], write=True)
     cfg = _configuration(row["kind"])
-    payload = json.loads(row["payload"])
+    try:
+        payload = json.loads(row["payload"])
+        if not isinstance(payload, dict) or not {"source_sha", "provider", "input_limits"} <= payload.keys():
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise HTTPException(409, "任务输入快照损坏，请重新提交。") from None
     paper = core.get_paper(row["paper_id"])
     if paper["sha256"] != payload["source_sha"]:
         raise HTTPException(409, "原文版本已变化，请新建任务")
@@ -197,14 +279,14 @@ def retry(job_id: str) -> dict:
         raise HTTPException(409, "模型或上下文配置已变化，请新建任务以保存新的执行配置；原任务快照保留。")
     with _STATE_LOCK, core.db() as con:
         con.execute("BEGIN IMMEDIATE")
-        current = con.execute("SELECT * FROM jobs WHERE id=? AND owner_id='local'", (job_id,)).fetchone()
+        current = con.execute("SELECT * FROM jobs WHERE id=? AND owner_id=?", (job_id, auth.current_user_id())).fetchone()
         if current["status"] not in {"failed", "cancelled", "interrupted"}:
             if current["status"] in {"queued", "running"}:
                 result = public_job(dict(current))
                 result["reused"] = True
                 return result
             raise HTTPException(409, "任务状态已变化，请刷新后再操作")
-        duplicate = con.execute("SELECT * FROM jobs WHERE dedupe_key=? AND id<>? AND status IN ('queued','running','succeeded') AND owner_id='local' LIMIT 1", (row["dedupe_key"], job_id)).fetchone()
+        duplicate = con.execute("SELECT * FROM jobs WHERE dedupe_key=? AND id<>? AND status IN ('queued','running','succeeded') AND owner_id=? LIMIT 1", (row["dedupe_key"], job_id, auth.current_user_id())).fetchone()
         if duplicate and row["kind"] == "translate" and json.loads(duplicate["payload"]).get("translation_run_id") != paper.get("active_translation_run_id"):
             duplicate = None
         if duplicate:
@@ -227,11 +309,11 @@ def _progress(job_id: str, stage: str, coverage: dict):
         con.execute("UPDATE jobs SET stage=?,coverage=?,updated_at=? WHERE id=? AND status='running'", (stage, json.dumps(coverage, ensure_ascii=False), core.now(), job_id))
 
 
-def _claim(*, paragraphs_only: bool = False) -> dict | None:
+def _claim(*, paragraphs_only: bool = False, channel: str | None = None) -> dict | None:
     with _STATE_LOCK, core.db() as con:
         con.execute("BEGIN IMMEDIATE")
-        condition = " AND kind='paragraph-translate'" if paragraphs_only else ""
-        row = con.execute("SELECT * FROM jobs WHERE status='queued' AND owner_id='local'" + condition + " ORDER BY CASE WHEN kind='paragraph-translate' THEN 0 ELSE 1 END,created_at,rowid LIMIT 1").fetchone()
+        condition = " AND kind='paragraph-translate'" if paragraphs_only or channel == "paragraph" else (" AND kind='translate'" if channel == "translation" else (" AND kind NOT IN ('translate','paragraph-translate')" if channel == "text" else ""))
+        row = con.execute("SELECT * FROM jobs WHERE status='queued'" + condition + " ORDER BY CASE WHEN kind='paragraph-translate' THEN 0 ELSE 1 END,created_at,rowid LIMIT 1").fetchone()
         if not row:
             return None
         con.execute("UPDATE jobs SET status='running',stage='准备输入证据',attempt=attempt+1,updated_at=? WHERE id=?", (core.now(), row["id"]))
@@ -249,15 +331,26 @@ def _check_translation_baseline(payload: dict, paper: dict):
         raise HTTPException(409, "译文已在任务提交后更新，保留现有译文；请确认后重新提交翻译任务。")
 
 
-def run_one(*, paragraphs_only: bool = False) -> bool:
+def run_one(*, paragraphs_only: bool = False, channel: str | None = None) -> bool:
     """Execute one queued job; also used by deterministic integration tests."""
-    row = _claim(paragraphs_only=paragraphs_only)
+    row = _claim(paragraphs_only=paragraphs_only, channel=channel)
     if row is None:
         return False
-    job_id, payload = row["id"], json.loads(row["payload"])
+    with auth.as_user(row["owner_id"]):
+        return _execute(row)
+
+
+def _execute(row):
+    job_id = row["id"]
     try:
+        payload = json.loads(row["payload"])
+        if not isinstance(payload, dict):
+            raise ai.ExecutionError("任务输入快照损坏，请重新提交。")
         if core.get_paper(payload["paper_id"])["sha256"] != payload["source_sha"]:
             raise ai.ExecutionError("原文版本已变化，未执行旧输入任务；请新建处理任务。")
+        core.require_membership(row["paper_id"], row["project_id"], write=row["kind"] == "translate")
+        if row["kind"] == "translate":
+            core.get_paper(row["paper_id"], write=True)
         cfg = ai.settings()
         if payload["provider"] != {"base_url": cfg["base_url"], "model": cfg["model"]} or payload["input_limits"] != {"max_input_chars": cfg["max_input_chars"], "max_output_tokens": cfg["max_output_tokens"]}:
             raise ai.ExecutionError("排队后模型或上下文配置发生变化，未执行。请重新提交以固定新的执行配置。")
@@ -308,6 +401,8 @@ def _run_translation_pages(job_id: str, payload: dict, progress):
         # A full book must not monopolize the only worker. Service a bounded
         # number of explicitly requested paragraphs at each page boundary.
         for _ in range(2):
+            if _THREADS and any(t.is_alive() for t in _THREADS.values()):
+                break
             if _cancelled(job_id) or not run_one(paragraphs_only=True):
                 break
         if _cancelled(job_id):
@@ -360,17 +455,23 @@ def _fail(job_id: str, message: str):
             con.execute("UPDATE translation_runs SET status='failed',updated_at=? WHERE job_id=? AND status IN ('queued','running')", (core.now(), job_id))
 
 
-def _loop():
+def _loop(channel):
     while not _STOP.is_set():
-        if not run_one():
-            _WAKE.wait(timeout=1)
-            _WAKE.clear()
+        try:
+            if not run_one(channel=channel):
+                _WAKE.wait(timeout=.5)
+                _WAKE.clear()
+        except Exception:
+            # Keep a transient database or legacy-row error from killing a
+            # queue. Never include material, provider responses or secrets.
+            logger.exception("Background %s worker iteration failed", channel)
+            _STOP.wait(.5)
 
 
 def start_worker():
     global _THREAD
     with _STATE_LOCK:
-        if _THREAD is not None and _THREAD.is_alive():
+        if any(thread.is_alive() for thread in _THREADS.values()):
             return
         with core.db() as con:
             interrupted = con.execute("SELECT id FROM jobs WHERE status='running'").fetchall()
@@ -378,15 +479,19 @@ def start_worker():
             for row in interrupted:
                 translations.stop_run(con, row["id"], "interrupted")
         _STOP.clear()
-        _THREAD = threading.Thread(target=_loop, daemon=True, name="paperstudio-worker")
-        _THREAD.start()
+        _THREADS.clear()
+        for channel in ("text", "translation", "paragraph"):
+            thread = threading.Thread(target=_loop, args=(channel,), daemon=True, name="paperstudio-" + channel)
+            _THREADS[channel] = thread
+            thread.start()
+        _THREAD = _THREADS["text"]
 
 
 def stop_worker():
     _STOP.set()
     _WAKE.set()
-    if _THREAD is not None:
-        _THREAD.join(timeout=2)
+    for thread in list(_THREADS.values()):
+        thread.join(timeout=2)
     with _STATE_LOCK, core.db() as con:
         interrupted = con.execute("SELECT id FROM jobs WHERE status='running'").fetchall()
         con.execute("UPDATE jobs SET status='interrupted',stage='服务停止，需手动重试',updated_at=? WHERE status='running'", (core.now(),))

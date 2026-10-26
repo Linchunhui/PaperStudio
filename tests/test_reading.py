@@ -131,7 +131,7 @@ def test_blank_page_and_invalid_scope_are_explicit(client, monkeypatch):
     assert client.get("/api/papers/missing/pages/1/reading").status_code == 404
     other = client.post("/api/projects", json={"name": "Other"}).json()["id"]
     assert client.get(f"/api/papers/{paper['id']}/pages/1/reading", params={"project_id": other}).status_code == 409
-    monkeypatch.delenv("AI_MODEL")
+    monkeypatch.setenv("AI_MODEL", "")
     assert not page(client, paper)["has_text"]
 
 
@@ -163,7 +163,7 @@ def test_paragraph_job_is_explicit_source_scoped_cached_and_durable(client, monk
     assert page(client, paper)["blocks"][1]["translation"]["id"] == first["id"]
     jobs.init_jobs()  # Existing cached result survives schema initialization.
     assert page(client, paper)["blocks"][1]["translation"]["result_markdown"] == "左侧第一段，包含换行。"
-    monkeypatch.delenv("AI_MODEL")
+    monkeypatch.setenv("AI_MODEL", "")
     assert page(client, paper)["blocks"][1]["translation"]["result_markdown"] == "左侧第一段，包含换行。"
     assert submit(client, paper, block).status_code == 409
     assert core.get_paper(paper["id"])["active_translation_run_id"] is None
@@ -180,7 +180,7 @@ def test_translation_validation_never_accepts_client_text_or_foreign_blocks(clie
     assert submit(client, paper, block, page=True).status_code == 422
     other = client.post("/api/projects", json={"name": "Other"}).json()["id"]
     assert submit(client, paper, block, project_id=other).status_code == 409
-    monkeypatch.delenv("AI_MODEL")
+    monkeypatch.setenv("AI_MODEL", "")
     assert submit(client, paper, block).status_code == 409
     assert page(client, paper)["blocks"][1]["translation"] is None
     assert client.get("/api/jobs").json() == []
@@ -287,3 +287,4 @@ def test_layout_translation_services_paragraphs_at_page_boundaries(client, monke
     assert events == ["pdf-1", "paragraph", "pdf-2"]
     assert jobs.get_job(layout["id"])["status"] == "succeeded"
     assert jobs.get_job(paragraph[0]["id"])["status"] == "succeeded"
+

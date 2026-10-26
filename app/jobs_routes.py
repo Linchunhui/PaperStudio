@@ -3,7 +3,7 @@ from typing import Literal
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import ai, jobs
+from . import ai, jobs, auth
 
 router = APIRouter(prefix="/api", tags=["processing"])
 
@@ -20,11 +20,13 @@ class JobRequest(BaseModel):
 
 @router.get("/capabilities")
 def capabilities():
+    auth.require_admin()
     return ai.capabilities()
 
 
 @router.get("/skills")
 def skills():
+    auth.require_admin()
     return ai.skills_list()
 
 
@@ -51,3 +53,14 @@ def cancel(job_id: str):
 @router.post("/jobs/{job_id}/retry")
 def retry(job_id: str):
     return jobs.retry(job_id)
+
+
+
+class VisibilityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    visibility: Literal["private", "shared"]
+
+
+@router.patch("/jobs/{job_id}/visibility")
+def share_job(job_id: str, request: VisibilityRequest):
+    return jobs.set_visibility(job_id, request.visibility)

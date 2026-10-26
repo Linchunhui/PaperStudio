@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import html
+import unicodedata
 import io
 import json
 import re
@@ -36,6 +38,21 @@ def init_catalog(seed=True):
         CREATE TABLE IF NOT EXISTS catalog_institutions (
             paper_id TEXT NOT NULL REFERENCES catalog_papers(id) ON DELETE CASCADE,
             name TEXT NOT NULL, PRIMARY KEY(paper_id,name));
+        CREATE TABLE IF NOT EXISTS catalog_facets (
+            paper_id TEXT NOT NULL REFERENCES catalog_papers(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(paper_id,kind,value));
+        CREATE TABLE IF NOT EXISTS catalog_conferences (
+            paper_id TEXT NOT NULL REFERENCES catalog_papers(id) ON DELETE CASCADE,
+            name TEXT NOT NULL, year INTEGER NOT NULL, presentation TEXT NOT NULL,
+            verification_status TEXT NOT NULL, selectivity TEXT NOT NULL,
+            PRIMARY KEY(paper_id,name,year,presentation,verification_status));
+        CREATE INDEX IF NOT EXISTS catalog_facet_lookup ON catalog_facets(kind,value,paper_id);
+        CREATE INDEX IF NOT EXISTS catalog_conference_lookup ON catalog_conferences(name,year,presentation,verification_status,paper_id);
+        CREATE TABLE IF NOT EXISTS catalog_migrations (
+            id TEXT PRIMARY KEY, details TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS catalog_legacy_archive (
+            migration_id TEXT NOT NULL, paper_id TEXT NOT NULL, data TEXT NOT NULL,
+            created_at TEXT NOT NULL, PRIMARY KEY(migration_id,paper_id));
         CREATE TABLE IF NOT EXISTS catalog_datasets (
             fingerprint TEXT PRIMARY KEY, data TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS catalog_imports (
@@ -48,15 +65,90 @@ def init_catalog(seed=True):
         CREATE INDEX IF NOT EXISTS catalog_source_lookup ON catalog_sources(source_id,paper_id);
         CREATE INDEX IF NOT EXISTS catalog_institution_lookup ON catalog_institutions(name,paper_id);
         """)
+        # Old installations did not have title aliases. Backfill once so new
+        # conference observations attach to existing papers without duplicates.
+        if not con.execute("SELECT 1 FROM catalog_aliases WHERE alias LIKE 'title:%' LIMIT 1").fetchone():
+            for existing in con.execute("SELECT id,title FROM catalog_papers").fetchall():
+                con.execute("INSERT OR IGNORE INTO catalog_aliases VALUES(?,?)", ("title:" + title_key(existing["title"]), existing["id"]))
     if seed:
-        for path in sorted(SEED_DIR.glob("*.json")):
+        manifest = SEED_DIR / "manifest.json"
+        paths = []
+        if manifest.exists():
+            try:
+                listing = json.loads(manifest.read_text())
+                entries = listing.get("shards", [])
+                paths = [SEED_DIR / entry["file"] for entry in entries if Path(entry["file"]).name == entry["file"]]
+                if len(paths) != len(entries):
+                    raise ValueError("种子文件路径无效")
+                # Verify the complete replacement before retiring legacy seed
+                # observations. User PDFs/projects/notes are never touched.
+                verified = all(path.is_file() and path.stat().st_size <= MAX_BYTES and hashlib.sha256(path.read_bytes()).hexdigest() == entry.get("sha256") for path, entry in zip(paths, entries))
+                if listing.get("schema_version", 1) >= 2 and paths and verified:
+                    _migrate_legacy_seed()
+                elif listing.get("schema_version", 1) >= 2:
+                    _record_failure("manifest.json", "种子清单校验失败，保留现有目录")
+                    return
+            except (ValueError, TypeError, KeyError, OSError):
+                _record_failure("manifest.json", "种子清单格式无效")
+                return
+        else:
+            # A source-only deployment still ships the existing 14 v1 shards.
+            # Keep all of them active until a complete, verified v2 manifest
+            # explicitly replaces them; no institution exclusions on upgrade.
+            paths = sorted(SEED_DIR.glob("*.json"))
+        for path in paths:
             try:
                 if path.stat().st_size > MAX_BYTES:
                     raise HTTPException(413, "索引文件超过 20 MB")
                 import_bytes(path.read_bytes(), path.name, skip_existing=True)
-            except HTTPException:
-                # One bad seed must not make existing papers or reading unavailable.
+            except (HTTPException, OSError):
+                # One bad seed must not make existing reading unavailable.
                 continue
+
+
+def _migrate_legacy_seed():
+    """Retire identifiable obsolete seed observations, archive first.
+
+    The old index merged common institution URLs. Keeping those aliases would
+    carry that error into the replacement. We remove only old converter
+    observations; manual uploads and later HF refreshes remain active.
+    """
+    migration = "full-catalog-v2-retire-reviewed-seed"
+    with core.db() as con:
+        if con.execute("SELECT 1 FROM catalog_migrations WHERE id=?", (migration,)).fetchone():
+            return
+        datasets = [(row["fingerprint"], json.loads(row["data"])) for row in con.execute("SELECT * FROM catalog_datasets")]
+        legacy = [(key, value) for key, value in datasets if str(value.get("id", "")).startswith(("institutions-reviewed-", "hf-weekly-2025-2026-snapshot-"))]
+        if not legacy:
+            return
+        def obsolete(observation):
+            note = str(observation.get("notes", ""))
+            return not observation.get("source_row_id") and ((observation.get("source_id") == "institution" and note.startswith("最新复筛CSV第")) or (observation.get("source_id") == "hf" and note.startswith("HF周榜CSV快照")))
+        retired = retained = 0
+        for row in con.execute("SELECT id,data FROM catalog_papers").fetchall():
+            old = json.loads(row["data"])
+            keep = [p for p in old.get("provenance", []) if not obsolete(p)]
+            if len(keep) == len(old.get("provenance", [])):
+                continue
+            con.execute("INSERT INTO catalog_legacy_archive VALUES(?,?,?,?)", (migration, row["id"], row["data"], core.now()))
+            con.execute("DELETE FROM catalog_papers WHERE id=?", (row["id"],))
+            retired += 1
+            if keep:
+                # Metadata survives for observations that the old converter did
+                # not own; archive retains the complete pre-migration object.
+                data, aliases = normalize_row({**old, "provenance": keep, "url_is_identity": False})
+                _save_paper(con, row["id"], data, core.now())
+                con.executemany("INSERT OR IGNORE INTO catalog_aliases VALUES(?,?)", [(alias, row["id"]) for alias in aliases])
+                retained += 1
+        con.executemany("DELETE FROM catalog_datasets WHERE fingerprint=?", [(key,) for key, _ in legacy])
+        con.execute("UPDATE catalog_imports SET status='superseded' WHERE name LIKE 'institutions-reviewed-%' OR name LIKE 'hf-weekly-%'")
+        details = {"archived_papers": retired, "papers_with_other_observations_preserved": retained, "legacy_datasets": [value for _, value in legacy], "note": "Archived obsolete converter observations only; personal reading tables and files unchanged."}
+        con.execute("INSERT INTO catalog_migrations VALUES(?,?,?)", (migration, json.dumps(details, ensure_ascii=False), core.now()))
+
+
+def title_key(value):
+    value = unicodedata.normalize("NFKC", html.unescape(value)).casefold()
+    return "".join(char for char in value if char.isalnum())
 
 
 def _text(value, limit=2000):
@@ -160,7 +252,7 @@ def _provenance(value, defaults):
         record = {"source_id": _source(item.get("source_id", item.get("source", defaults.get("source_id")))),
                   "source_url": _url(item.get("source_url", defaults.get("source_url"))),
                   "observed_at": _text(item.get("observed_at", defaults.get("observed_at")), 100) or None}
-        for key in ("ranking_week", "week", "sort", "institution_evidence", "dataset_id", "notes", "note"):
+        for key in ("ranking_week", "week", "sort", "institution_evidence", "dataset_id", "notes", "note", "source_row_id", "verification_status", "conference", "presentation", "selectivity", "track", "source_title", "metrics_observed_at"):
             if item.get(key) is not None:
                 record[key] = _text(item[key], 2000)
         for key in ("rank", "hf_upvotes", "github_stars"):
@@ -173,6 +265,37 @@ def _provenance(value, defaults):
             if not isinstance(repositories, list) or len(repositories) > 50:
                 raise ValueError("GitHub 仓库来源记录无效")
             record["github_repositories"] = [{"url": _url(repo.get("url")), "stars": _number(repo.get("stars"))} for repo in repositories if isinstance(repo, dict)]
+        if "raw_record" in item:
+            raw = item["raw_record"]
+            if not isinstance(raw, dict) or len(json.dumps(raw, ensure_ascii=False)) > 50000:
+                raise ValueError("原始来源记录无效或过大")
+            record["raw_record"] = raw
+        for key in ("conference_year", "source_line"):
+            if key in item:
+                record[key] = _number(item[key])
+        result.append(record)
+    return result
+
+
+def _conferences(value):
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > 100:
+        raise ValueError("会议展示记录格式无效")
+    result = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("会议展示记录须为对象")
+        status = item.get("verification_status", "pending")
+        if status not in {"confirmed", "pending"}:
+            raise ValueError("会议核验状态无效")
+        year = _number(item.get("year"), 2100)
+        if not year or year < 1900:
+            raise ValueError("会议年份无效")
+        record = {key: _text(item.get(key), 2000) for key in ("conference", "presentation", "track", "selectivity")}
+        if not record["conference"]:
+            raise ValueError("会议名称不能为空")
+        record.update(year=year, verification_status=status, source_url=_url(item.get("source_url")))
         result.append(record)
     return result
 
@@ -181,6 +304,29 @@ def _canonical_url(url):
     parsed = urlsplit(url)
     query = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if not k.lower().startswith("utm_") and k.lower() not in {"fbclid", "gclid"}]
     return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path or "/", urlencode(sorted(query)), ""))
+
+
+def _source_only_url(url):
+    if not url:
+        return False
+    parsed = urlsplit(url)
+    path = parsed.path.casefold().rstrip("/")
+    return parsed.hostname in {"docs.google.com", "ras.papercept.net"} or (parsed.hostname in {"aaai.org", "www.aaai.org"} and ("oral" in path or "schedule" in path)) or path in {"/research/papers", "/research/publications", "/publications", "/research"}
+
+
+def _reading_target(data):
+    pdf = data.get("pdf_url")
+    if pdf and not _source_only_url(pdf):
+        return pdf
+    url = data.get("url")
+    if not url or _source_only_url(url):
+        return None
+    parsed = urlsplit(url)
+    if parsed.hostname in {"arxiv.org", "export.arxiv.org", "www.arxiv.org", "huggingface.co", "openreview.net", "aclanthology.org", "openaccess.thecvf.com"} or parsed.path.casefold().endswith(".pdf"):
+        return url
+    # An individual landing page remains a useful source link, but an unknown
+    # provider is searched by title rather than downloaded as a PDF.
+    return None
 
 
 def normalize_row(row, defaults=None):
@@ -192,6 +338,8 @@ def normalize_row(row, defaults=None):
         raise ValueError("缺少论文标题")
     url = _url(row.get("url", row.get("链接")))
     pdf_url = _url(row.get("pdf_url"))
+    if _source_only_url(pdf_url):
+        pdf_url = None
     arxiv_ids = {_arxiv(row.get("arxiv_id"))}
     for link in (url, pdf_url):
         candidate = discovery._arxiv_id(link) if link else None
@@ -211,8 +359,6 @@ def normalize_row(row, defaults=None):
     doi = next(iter(doi_ids), None)
     if not url:
         url = f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else f"https://doi.org/{doi}" if doi else None
-    if not url:
-        raise ValueError("缺少论文链接、arXiv ID 或 DOI")
     published = _date(row.get("published_at", row.get("date")))
     year = _number(row.get("year"), 2100)
     if year is not None and year < 1900:
@@ -226,7 +372,20 @@ def normalize_row(row, defaults=None):
         year = 2000 + int(arxiv_id[:2])
     source = row.get("source_id", row.get("source", defaults.get("source_id", "import")))
     provenance = _provenance(row.get("provenance"), {**defaults, "source_id": source})
+    conferences = _conferences(row.get("conferences"))
+    directions = discovery.classify_directions(title, row.get("abstract", row.get("summary", "")))
+    if row.get("directions"):
+        directions["directions"] = _strings(row["directions"])
+        if isinstance(row.get("direction_evidence"), dict):
+            directions["direction_evidence"] = row["direction_evidence"]
+    url_role = "source-only" if _source_only_url(url) else _text(row.get("url_role", "paper" if url else "missing"), 40)
+    if url_role not in {"paper", "source-only", "missing"}:
+        raise ValueError("链接角色无效")
+    # Source schedules/directories are evidence, never PDF import targets.
+    if url_role == "source-only":
+        url = None
     result = {
+        **directions, "conferences": conferences, "url_role": url_role,
         "title": title, "url": f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else url,
         "pdf_url": pdf_url or (f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else None),
         "arxiv_id": arxiv_id, "doi": doi, "published_at": published, "year": year,
@@ -240,10 +399,19 @@ def normalize_row(row, defaults=None):
         key: _metric_observed(provenance, key, result[key])
         for key in ("hf_upvotes", "github_stars") if result[key] is not None
     }
-    aliases = ["url:" + _canonical_url(url)]
+    result["source_record_count"] = len(provenance)
+    result["url_role"] = "paper" if result.get("url") or result.get("pdf_url") else "missing"
+    target = _reading_target(result)
+    result["resolve"] = {"action": "resolve" if target else "search", "url": target, "query": title}
+    result["title_aliases"] = list(dict.fromkeys([title, *_strings(row.get("title_aliases"))]))
+    result["url_is_identity"] = row.get("url_is_identity", True) is True
+    result["doi_is_identity"] = row.get("doi_is_identity", True) is True
+    aliases = ["title:" + title_key(value) for value in result["title_aliases"]]
+    if url and row.get("url_is_identity", True):
+        aliases.append("url:" + _canonical_url(url))
     if arxiv_id:
         aliases.append("arxiv:" + arxiv_id)
-    if doi:
+    if doi and row.get("doi_is_identity", True):
         aliases.append("doi:" + doi)
     return result, aliases
 
@@ -267,11 +435,12 @@ def _fingerprint(value):
 
 
 def _metric_observed(provenance, key, value):
+    # A later conference observation cannot re-date an older popularity metric.
+    explicit = [item for item in provenance if key in item and item[key] == value and value is not None]
+    candidates = explicit or [item for item in provenance if key not in item and item.get("source_id") in {"hf", "institution", "import"}]
     stamps = []
-    for item in provenance:
-        if item.get(key) not in (None, value):
-            continue
-        stamp = item.get("observed_at")
+    for item in candidates:
+        stamp = item.get("metrics_observed_at") or item.get("observed_at")
         if not stamp:
             continue
         try:
@@ -302,9 +471,9 @@ def _merge(old, new):
             if value and (not old.get(key) or newer("github_stars")):
                 result[key] = value
             continue
-        if key in {"authors", "institutions", "source_ids"}:
+        if key in {"authors", "institutions", "source_ids", "directions", "title_aliases"}:
             result[key] = list(dict.fromkeys(old.get(key, []) + value))
-        elif key == "provenance":
+        elif key in {"provenance", "conferences"}:
             unique = {_fingerprint(p): p for p in old.get(key, []) + value}
             result[key] = list(unique.values())
         elif value not in (None, "", []):
@@ -316,12 +485,16 @@ def _merge(old, new):
         result["github_stars"] = new.get("github_stars")
         stamps["github_stars"] = new_stamps.get("github_stars")
     result["metrics_observed_at"] = stamps
+    result["source_record_count"] = len(result.get("provenance", []))
+    result["url_role"] = "paper" if result.get("url") or result.get("pdf_url") else "missing"
+    target = _reading_target(result)
+    result["resolve"] = {"action": "resolve" if target else "search", "url": target, "query": result.get("title", "")}
     return result
 
 
 def _save_paper(con, identifier, data, now):
     data["id"] = identifier
-    search_text = " ".join([data["title"], data["abstract"], *data["authors"], *data["institutions"], data.get("arxiv_id") or "", data.get("doi") or ""]).casefold()
+    search_text = " ".join([data["title"], data["abstract"], *data["authors"], *data["institutions"], data.get("arxiv_id") or "", data.get("doi") or "", *data.get("directions", []), *[c["conference"] for c in data.get("conferences", [])]]).casefold()
     con.execute("""INSERT INTO catalog_papers(id,data,search_text,title,year,published_at,hf_upvotes,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,search_text=excluded.search_text,
         title=excluded.title,year=excluded.year,published_at=excluded.published_at,hf_upvotes=excluded.hf_upvotes,updated_at=excluded.updated_at""",
@@ -330,6 +503,11 @@ def _save_paper(con, identifier, data, now):
     con.execute("DELETE FROM catalog_institutions WHERE paper_id=?", (identifier,))
     con.executemany("INSERT INTO catalog_sources VALUES(?,?)", [(identifier, s) for s in data["source_ids"]])
     con.executemany("INSERT INTO catalog_institutions VALUES(?,?)", [(identifier, s) for s in data["institutions"]])
+    con.execute("DELETE FROM catalog_facets WHERE paper_id=?", (identifier,))
+    con.execute("DELETE FROM catalog_conferences WHERE paper_id=?", (identifier,))
+    facets = [(identifier, "direction", label) for label in data.get("directions", [])]
+    con.executemany("INSERT OR IGNORE INTO catalog_facets VALUES(?,?,?)", facets)
+    con.executemany("INSERT OR IGNORE INTO catalog_conferences VALUES(?,?,?,?,?,?)", [(identifier, c["conference"], c["year"], c["presentation"], c["verification_status"], c["selectivity"]) for c in data.get("conferences", [])])
 
 
 def _record_failure(name, message, fingerprint=None):
@@ -395,7 +573,8 @@ def import_bytes(content, filename="catalog.json", *, skip_existing=False):
                     known = {value for value in [incoming.get(key), *[json.loads(r["data"]).get(key) for r in found]] if value}
                     if len(known) > 1:
                         raise HTTPException(422, "同一来源链接存在冲突的论文标识，未导入；请核对该行的 DOI/arXiv ID")
-                identifier = found[0]["id"] if found else core.uid()
+                stable_key = next((a for prefix in ("arxiv:", "doi:", "title:") for a in aliases if a.startswith(prefix)), aliases[0])
+                identifier = found[0]["id"] if found else "cat_" + hashlib.sha256(stable_key.encode()).hexdigest()[:24]
                 old = json.loads(found[0]["data"]) if found else None
                 merged = dict(old) if old else {}
                 for duplicate in found[1:]:
@@ -419,7 +598,7 @@ def import_bytes(content, filename="catalog.json", *, skip_existing=False):
     return {"id": event_id, "name": name, "status": "succeeded", "row_count": len(rows), **counts, "created_at": now, "datasets": datasets}
 
 
-def search(q="", year=None, source="all", institution="", sort="votes", page=1, page_size=24):
+def search(q="", year=None, source="all", institution="", sort="votes", page=1, page_size=24, *, conference="", conference_year=None, presentation="", verification_status="all", direction=""):
     where, args = [], []
     for term in q.strip().casefold().split()[:20]:
         where.append("p.search_text LIKE ? ESCAPE '\\'")
@@ -433,8 +612,19 @@ def search(q="", year=None, source="all", institution="", sort="votes", page=1, 
     if institution:
         where.append("EXISTS(SELECT 1 FROM catalog_institutions i WHERE i.paper_id=p.id AND i.name=?)")
         args.append(institution)
+    conference_terms, conference_args = [], []
+    for column, value in (("name", conference), ("year", conference_year), ("presentation", presentation), ("verification_status", verification_status if verification_status != "all" else "")):
+        if value:
+            conference_terms.append("c." + column + "=?")
+            conference_args.append(value)
+    if conference_terms:
+        where.append("EXISTS(SELECT 1 FROM catalog_conferences c WHERE c.paper_id=p.id AND " + " AND ".join(conference_terms) + ")")
+        args.extend(conference_args)
+    if direction and direction != "all":
+        where.append("EXISTS(SELECT 1 FROM catalog_facets f WHERE f.paper_id=p.id AND f.kind='direction' AND f.value=?)")
+        args.append(direction)
     condition = " WHERE " + " AND ".join(where) if where else ""
-    orders = {"votes": "p.hf_upvotes IS NULL,p.hf_upvotes DESC,p.published_at DESC,p.id", "published": "p.published_at IS NULL,p.published_at DESC,p.year DESC,p.id", "title": "p.title COLLATE NOCASE,p.id"}
+    orders = {"votes": "p.hf_upvotes IS NULL,p.hf_upvotes DESC,p.published_at DESC,p.id", "published": "p.published_at IS NULL,p.published_at DESC,p.year DESC,p.id", "title": "p.title COLLATE NOCASE,p.id", "stars": "json_extract(p.data,'$.github_stars') IS NULL,json_extract(p.data,'$.github_stars') DESC,p.id"}
     if sort not in orders:
         raise HTTPException(422, "未知排序")
     with core.db() as con:
@@ -450,9 +640,14 @@ def stats():
         sources = [dict(r) for r in con.execute("SELECT source_id id,count(*) count FROM catalog_sources GROUP BY source_id ORDER BY count DESC,source_id")]
         institutions = [dict(r) for r in con.execute("SELECT name,count(*) count FROM catalog_institutions GROUP BY name ORDER BY count DESC,name")]
         coverage = [json.loads(r[0]) for r in con.execute("SELECT data FROM catalog_datasets ORDER BY rowid DESC LIMIT 1000")]
+        directions = [dict(r) for r in con.execute("SELECT value name,count(*) count FROM catalog_facets WHERE kind='direction' GROUP BY value ORDER BY count DESC,value")]
+        conference_facets = {}
+        for label, column in (("conferences", "name"), ("conference_years", "year"), ("presentations", "presentation"), ("verification_statuses", "verification_status"), ("selectivities", "selectivity")):
+            conference_facets[label] = [dict(r) for r in con.execute(f"SELECT {column} name,count(DISTINCT paper_id) count FROM catalog_conferences GROUP BY {column} ORDER BY count DESC,{column}")]
+        source_records = con.execute("SELECT COALESCE(sum(json_array_length(data,'$.provenance')),0) FROM catalog_papers").fetchone()[0]
         last = con.execute("SELECT * FROM catalog_imports ORDER BY created_at DESC,rowid DESC LIMIT 1").fetchone()
         errors = [dict(r) for r in con.execute("SELECT * FROM catalog_imports WHERE status='failed' ORDER BY created_at DESC,rowid DESC LIMIT 10")]
-    return {"total": total, "by_year": years, "sources": sources, "institutions": institutions, "coverage": coverage, "last_import": dict(last) if last else None, "import_errors": errors}
+    return {"total": total, "source_records": source_records, "by_year": years, "sources": sources, "institutions": institutions, "directions": directions, **conference_facets, "coverage": coverage, "last_import": dict(last) if last else None, "import_errors": errors}
 
 
 def observed_hf_weeks():
@@ -525,3 +720,4 @@ async def refresh_hf(week):
     except (ValueError, TypeError) as exc:
         _record_failure("hf-" + week, "HF 元数据格式无效，未更新索引")
         raise HTTPException(502, "HF 元数据格式无效，未更新索引") from None
+

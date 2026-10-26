@@ -60,7 +60,7 @@ def submit(client, paper, kind="brief", **kwargs):
 
 def test_missing_configuration_does_not_create_fake_job(client, monkeypatch):
     paper = upload(client)
-    monkeypatch.delenv("AI_MODEL")
+    monkeypatch.setenv("AI_MODEL", "")
     response = client.post("/api/jobs", json={"paper_id": paper["id"], "project_id": "inbox", "kind": "brief"})
     assert response.status_code == 409
     assert client.get("/api/jobs").json() == []
@@ -332,3 +332,4 @@ def test_legacy_translation_without_baseline_requires_new_submission(client, mon
     assert "没有译文版本快照" in jobs.get_job(job["id"])["error"]
     assert not calls
     assert client.post(f"/api/jobs/{job['id']}/retry").status_code == 409
+

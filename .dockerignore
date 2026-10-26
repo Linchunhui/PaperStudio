@@ -1,0 +1,14 @@
+.git
+.venv
+.babeldoc-venv
+.env
+.env.*
+!.env.example
+data
+backups
+.codex
+**/__pycache__
+.pytest_cache
+*.pyc
+*.log
+node_modules

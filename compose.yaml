@@ -1,0 +1,28 @@
+services:
+  paperstudio:
+    image: paperstudio:local
+    build:
+      context: .
+      args:
+        INSTALL_BABELDOC: "0"
+        CODEX_PACKAGE: "@openai/codex@latest"
+        BABELDOC_PACKAGE: "BabelDOC"
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      PAPERSTUDIO_DATA_DIR: /data
+      PAPERSTUDIO_HOST: 0.0.0.0
+      PAPERSTUDIO_PORT: "8000"
+      PAPERSTUDIO_SEED_DEMO: "0"
+    volumes:
+      - ./.env:/app/.env:ro
+      - paperstudio-data:/data
+      - codex-auth:/home/paperstudio/.codex
+      - babeldoc-cache:/home/paperstudio/.cache
+    stop_grace_period: 45s
+volumes:
+  paperstudio-data:
+  codex-auth:
+  babeldoc-cache:

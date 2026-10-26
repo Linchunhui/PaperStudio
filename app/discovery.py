@@ -29,6 +29,45 @@ SOURCE_NAMES = {"hf": "Hugging Face", "qbitai": "量子位", "jiqizhixin": "机�
 ARXIV_RE = re.compile(r"(?:\d{4}\.\d{4,5}|[a-zA-Z][a-zA-Z.\-]+/\d{7})(?:v\d+)?\Z")
 
 
+# These labels are retrieval aids, never a claim of a full-paper review.
+DIRECTION_KEYWORDS = {
+    "大语言模型与智能体": ("large language", "language model", "llm", "agent", "reasoning", "prompt", "retrieval augmented"),
+    "多模态与视觉语言": ("multimodal", "multi-modal", "vision-language", "vision language", "vlm", "visual question", "image caption"),
+    "计算机视觉": ("image", "video", "visual", "segmentation", "object detection", "3d", "gaussian splatting", "optical flow"),
+    "生成模型": ("diffusion", "generative", "generation", "flow matching", "autoregressive", "synthesis"),
+    "机器人与具身智能": ("robot", "robotic", "manipulation", "grasp", "embodied", "locomotion", "navigation", "vla"),
+    "强化学习与决策": ("reinforcement learning", "policy optimization", "policy gradient", "bandit", "planning", "decision making"),
+    "自然语言处理": ("language", "translation", "text", "linguistic", "sentiment", "named entity", "dialogue"),
+    "机器学习理论与优化": ("optimization", "convergence", "generalization", "generalisation", "learning theory", "statistical", "gradient", "kernel"),
+    "模型效率与系统": ("efficient", "efficiency", "quantization", "compression", "pruning", "acceleration", "serving", "distributed training"),
+    "安全、对齐与隐私": ("safety", "alignment", "privacy", "adversarial", "jailbreak", "fairness", "unlearning", "backdoor"),
+    "数据、评测与基准": ("dataset", "benchmark", "evaluation", "evaluating", "data curation", "data selection"),
+    "科学与医疗AI": ("medical", "clinical", "molecule", "molecular", "protein", "drug", "scientific", "material", "healthcare"),
+    "语音与音频": ("speech", "audio", "acoustic", "music", "sound"),
+    "图学习与推荐": ("graph neural", "graph learning", "recommendation", "recommender", "knowledge graph"),
+    "时间序列与预测": ("time series", "time-series", "forecasting", "temporal prediction"),
+}
+
+
+def classify_directions(title, abstract=""):
+    text = (str(title or "") + " " + str(abstract or "")).casefold()
+    matched = {label: [word for word in words if re.search(r"(?<![a-z0-9])" + re.escape(word) + r"(?![a-z0-9])", text)] for label, words in DIRECTION_KEYWORDS.items()}
+    matched = {label: words for label, words in matched.items() if words}
+    return {"directions": list(matched) or ["未分类"], "direction_evidence": {
+        "method": "keyword-v1", "status": "heuristic-unverified", "input": "title-and-abstract" if abstract else "title",
+        "matched_keywords": sorted({word for words in matched.values() for word in words}),
+        "note": "依据标题/已有摘要的关键词初标，待人工确认；未按方向移除论文。"}}
+
+
+def direction_view(items, direction=""):
+    enriched = [{**item, **classify_directions(item.get("title"), item.get("snippet", item.get("abstract", "")))} for item in items]
+    counts = {}
+    for item in enriched:
+        for label in item["directions"]:
+            counts[label] = counts.get(label, 0) + 1
+    return [item for item in enriched if not direction or direction == "all" or direction in item["directions"]], [{"name": label, "count": count} for label, count in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
+
+
 class ProviderError(Exception):
     """Deliberately contains no response body, URL parameters or API key."""
 
@@ -364,7 +403,7 @@ def _rank(items, interests):
     return sorted(items, key=lambda x: (x["score_signals"]["rule_score"], x.get("published_at") or ""), reverse=True)
 
 
-async def search(query: str, scope: str, page: int) -> dict:
+async def search(query: str, scope: str, page: int, direction: str = "") -> dict:
     if scope == "web":
         _search_settings()  # Missing configuration is an actionable HTTP 409.
         fetcher = lambda: _web(query, page)
@@ -373,13 +412,16 @@ async def search(query: str, scope: str, page: int) -> dict:
     else:
         fetcher = lambda: _arxiv(query, page)
     items, status = await _load(scope, fetcher, query=query, page=page)
-    return {"items": _deduplicate(items), "statuses": [status], "query": query, "page": page}
+    items, facets = direction_view(_deduplicate(items), direction)
+    return {"items": items, "directions": facets, "direction_filter_scope": "当前返回页", "statuses": [status], "query": query, "page": page}
 
 
-async def feed(sources: list[str], interests: list[str], limit: int, refresh: bool) -> dict:
+async def feed(sources: list[str], interests: list[str], limit: int, refresh: bool, direction: str = "") -> dict:
     async def one(source):
         fetcher = {"hf": _hf, "qbitai": _qbitai, "jiqizhixin": lambda: _web("site:jiqizhixin.com/articles 论文", fresh=True, source="jiqizhixin")}[source]
         return await _load(source, fetcher, refresh=refresh)
     results = await asyncio.gather(*(one(source) for source in dict.fromkeys(sources)))
     items = _deduplicate([item for rows, _ in results for item in rows])
-    return {"items": _rank(items, interests)[:limit], "statuses": [status for _, status in results], "fetched_at": core.now()}
+    items, facets = direction_view(items, direction)
+    return {"items": _rank(items, interests)[:limit], "directions": facets, "direction_filter_scope": "当前来源返回集合", "statuses": [status for _, status in results], "fetched_at": core.now()}
+

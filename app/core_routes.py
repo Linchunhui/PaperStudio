@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from . import core, pdf
+from . import core, pdf, auth
 
 router = APIRouter(prefix="/api")
 Side = Literal["original", "translation"]
@@ -73,6 +73,7 @@ class AnnotationInput(ProjectLink):
     rects: list[RectInput] = Field(min_length=1, max_length=1000)
     source_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
     translation_run_id: str | None = Field(default=None, max_length=128)
+    visibility: Literal["private", "shared"] = "private"
 
     @field_validator("quote")
     @classmethod
@@ -83,6 +84,8 @@ class AnnotationInput(ProjectLink):
 
 
 class AnnotationPatch(BaseModel):
+    visibility: Literal["private", "shared"] | None = None
+    expected_version: int | None = Field(default=None, ge=1)
     note: str | None = Field(default=None, max_length=50000)
     color: Literal["yellow", "green", "blue", "pink"] | None = None
 
@@ -99,33 +102,44 @@ def _read_upload(file: UploadFile) -> bytes:
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "mode": "local-single-user", "storage": "sqlite"}
+    return {"status": "ok", "mode": "multi-user", "storage": "sqlite"}
 
 
 @router.get("/projects")
 def projects():
+    ids = core.visible_project_ids()
+    result = []
     with core.db() as connection:
-        rows = connection.execute("SELECT p.*,COUNT(pp.paper_id) AS paper_count FROM projects p LEFT JOIN project_papers pp ON pp.project_id=p.id WHERE p.owner_id=? GROUP BY p.id ORDER BY p.created_at,p.id", (core.OWNER_ID,)).fetchall()
-    return [dict(r) for r in rows]
+        for identifier in ids:
+            entry = core.get_project(identifier)
+            entry["paper_count"] = connection.execute("SELECT COUNT(*) FROM project_papers WHERE project_id=?", (identifier,)).fetchone()[0]
+            result.append(entry)
+    return sorted(result, key=lambda p: (p["created_at"], p["id"]))
 
 
 @router.post("/projects", status_code=201)
 def create_project(body: ProjectInput):
-    if body.parent_id:
-        core.get_project(body.parent_id)
+    parent_id = body.parent_id
+    if parent_id:
+        parent = core.get_project(parent_id, write=True)
+        if parent["owner_id"] != auth.current_user_id():
+            raise HTTPException(403, "请在自己的项目中创建子项目，再按需共享")
+        parent_id = parent["id"]
     project_id = core.uid()
     with core.db() as connection:
-        connection.execute("INSERT INTO projects(id,name,parent_id,created_at,owner_id) VALUES(?,?,?,?,?)", (project_id, body.name, body.parent_id, core.now(), core.OWNER_ID))
+        connection.execute("INSERT INTO projects(id,name,parent_id,created_at,owner_id) VALUES(?,?,?,?,?)", (project_id, body.name, parent_id, core.now(), auth.current_user_id()))
     return core.get_project(project_id)
 
 
 @router.patch("/projects/{project_id}")
 def update_project(project_id: str, body: ProjectPatch):
-    current = core.get_project(project_id)
+    current = core.get_project(project_id, write=True)
+    project_id = current["id"]
     if "name" in body.model_fields_set and body.name is None:
         raise HTTPException(422, "项目名不能为空")
     parent_id = body.parent_id if "parent_id" in body.model_fields_set else current["parent_id"]
-    # Serialize read-and-move validation. Two concurrent moves cannot form a cycle.
+    if parent_id:
+        parent_id = core.get_project(parent_id, write=True)["id"]
     with core.db() as connection:
         connection.execute("BEGIN IMMEDIATE")
         ancestor = parent_id
@@ -134,28 +148,36 @@ def update_project(project_id: str, body: ProjectPatch):
             if ancestor in seen:
                 raise HTTPException(422, "不能把项目移动到自身或其子项目中")
             seen.add(ancestor)
-            row = connection.execute("SELECT parent_id FROM projects WHERE id=? AND owner_id=?", (ancestor, core.OWNER_ID)).fetchone()
+            row = connection.execute("SELECT parent_id FROM projects WHERE id=? AND owner_id=?", (ancestor, current["owner_id"])).fetchone()
             if not row:
-                raise HTTPException(404, "父项目不存在")
+                raise HTTPException(404, "父项目不存在或不属于同一所有者")
             ancestor = row["parent_id"]
-        connection.execute("UPDATE projects SET name=?,parent_id=? WHERE id=? AND owner_id=?", (body.name if body.name is not None else current["name"], parent_id, project_id, core.OWNER_ID))
+        connection.execute("UPDATE projects SET name=?,parent_id=? WHERE id=?", (body.name if body.name is not None else current["name"], parent_id, project_id))
     return core.get_project(project_id)
 
 
 @router.get("/papers")
 def papers(project_id: str | None = None, q: str = Query(default="", max_length=500), include_children: bool = False):
-    params = [core.OWNER_ID]
-    conditions = ["p.owner_id=?"]
+    visible = core.visible_project_ids()
+    selected = list(visible)
     if project_id:
-        core.get_project(project_id)
+        project_id = core.get_project(project_id)["id"]
+        selected = [project_id]
         if include_children:
-            conditions.append("p.id IN (WITH RECURSIVE descendants(id) AS (SELECT id FROM projects WHERE id=? AND owner_id=? UNION ALL SELECT p.id FROM projects p JOIN descendants d ON p.parent_id=d.id WHERE p.owner_id=?) SELECT pp.paper_id FROM project_papers pp JOIN descendants d ON pp.project_id=d.id)")
-            params.extend([project_id, core.OWNER_ID, core.OWNER_ID])
-        else:
-            conditions.append("p.id IN (SELECT paper_id FROM project_papers WHERE project_id=?)")
-            params.append(project_id)
+            with core.db() as connection:
+                projects = [dict(r) for r in connection.execute("SELECT id,parent_id FROM projects") if r["id"] in visible]
+            changed = True
+            while changed:
+                additions = [p["id"] for p in projects if p["parent_id"] in selected and p["id"] not in selected]
+                selected.extend(additions)
+                changed = bool(additions)
+    placeholders = ','.join('?' for _ in selected) or 'NULL'
+    conditions = [f"p.id IN (SELECT paper_id FROM project_papers WHERE project_id IN ({placeholders}))"]
+    params = list(selected)
+    if not project_id:
+        conditions[0] = f"({conditions[0]} OR p.owner_id=?)"
+        params.append(auth.current_user_id())
     if q.strip():
-        # Escape LIKE wildcards: a literal query should not unexpectedly match all.
         conditions.append("p.title LIKE ? ESCAPE '\\'")
         escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         params.append(f"%{escaped}%")
@@ -186,15 +208,19 @@ def add_to_project(paper_id: str, body: ProjectLink):
 
 @router.patch("/papers/{paper_id}/reading")
 def set_reading(paper_id: str, body: ReadingInput):
-    membership = core.require_membership(paper_id, body.project_id)
+    project_id = core.get_project(body.project_id)["id"]
+    membership = core.require_membership(paper_id, project_id)
     paper = core.get_paper(paper_id)
     page = body.last_page if body.last_page is not None else membership["last_page"]
     if page > paper["page_count"]:
         raise HTTPException(422, "阅读位置超出论文页数")
     offset = body.page_offset if body.page_offset is not None else (membership["page_offset"] if page == membership["last_page"] else 0)
     with core.db() as connection:
-        connection.execute("UPDATE project_papers SET status=?,last_page=?,page_offset=?,updated_at=? WHERE paper_id=? AND project_id=?", (body.status, page, offset, core.now(), paper_id, body.project_id))
-    return core.require_membership(paper_id, body.project_id)
+        connection.execute("INSERT INTO reading_progress(user_id,paper_id,project_id,status,last_page,page_offset,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,paper_id,project_id) DO UPDATE SET status=excluded.status,last_page=excluded.last_page,page_offset=excluded.page_offset,updated_at=excluded.updated_at", (auth.current_user_id(),paper_id,project_id,body.status,page,offset,core.now()))
+        # Preserve the original single-user progress fields for existing scripts.
+        if core.get_project(project_id)["owner_id"] == auth.current_user_id():
+            connection.execute("UPDATE project_papers SET status=?,last_page=?,page_offset=?,updated_at=? WHERE paper_id=? AND project_id=?", (body.status,page,offset,core.now(),paper_id,project_id))
+    return core.require_membership(paper_id, project_id)
 
 
 @router.post("/papers/{paper_id}/translation")
@@ -287,7 +313,8 @@ def list_annotations(paper_id: str, project_id: str):
 
 @router.post("/papers/{paper_id}/annotations", status_code=201)
 def create_annotation(paper_id: str, body: AnnotationInput):
-    core.require_membership(paper_id, body.project_id)
+    project_id = core.get_project(body.project_id, write=body.visibility == "shared")["id"]
+    core.require_membership(paper_id, project_id)
     paper = core.get_paper(paper_id)
     if body.page > paper["page_count"]:
         raise HTTPException(422, "批注页码超出 PDF 范围")
@@ -299,7 +326,7 @@ def create_annotation(paper_id: str, body: AnnotationInput):
         # Validate the active page asset and write the note in one transaction.
         # A page becoming ready later cannot invalidate an already-ready page.
         connection.execute("BEGIN IMMEDIATE")
-        current = connection.execute("SELECT sha256,translated_sha256,active_translation_run_id FROM papers WHERE id=? AND owner_id=?", (paper_id, core.OWNER_ID)).fetchone()
+        current = connection.execute("SELECT sha256,translated_sha256,active_translation_run_id FROM papers WHERE id=?", (paper_id,)).fetchone()
         if not current:
             raise HTTPException(404, "论文不存在")
         run_id = None
@@ -319,7 +346,9 @@ def create_annotation(paper_id: str, body: AnnotationInput):
             sha = current["translated_sha256"]
         if not sha or body.source_sha != sha:
             raise HTTPException(409, "PDF 版本已改变，刷新原页后重新选择词句")
-        connection.execute("INSERT INTO annotations(id,paper_id,project_id,side,page,quote,note,color,rects,source_sha,translation_run_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (annotation_id, paper_id, body.project_id, body.side, body.page, body.quote, body.note, body.color, json.dumps([r.model_dump() for r in body.rects]), sha, run_id, timestamp, timestamp))
+        connection.execute("INSERT INTO annotations(id,paper_id,project_id,side,page,quote,note,color,rects,source_sha,translation_run_id,created_at,updated_at,owner_id,visibility,version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)", (annotation_id, paper_id, project_id, body.side, body.page, body.quote, body.note, body.color, json.dumps([r.model_dump() for r in body.rects]), sha, run_id, timestamp, timestamp,auth.current_user_id(),body.visibility))
+        created = dict(connection.execute("SELECT * FROM annotations WHERE id=?", (annotation_id,)).fetchone())
+        core.record_annotation_version(connection, created, "created")
     result = core.get_annotation(annotation_id)
     result["is_current"] = True
     return result
@@ -327,16 +356,56 @@ def create_annotation(paper_id: str, body: AnnotationInput):
 
 @router.patch("/annotations/{annotation_id}")
 def edit_annotation(annotation_id: str, body: AnnotationPatch):
-    old = core.get_annotation(annotation_id)
+    old = core.get_annotation(annotation_id, write=True)
+    if body.visibility is not None and body.visibility != old["visibility"]:
+        if old["owner_id"] != auth.current_user_id():
+            raise HTTPException(403, "只有作者可以改变笔记共享范围")
+        if body.visibility == "shared":
+            core.get_project(old["project_id"], write=True)
     with core.db() as connection:
-        connection.execute("UPDATE annotations SET note=?,color=?,updated_at=? WHERE id=?", (body.note if body.note is not None else old["note"], body.color if body.color is not None else old["color"], core.now(), annotation_id))
+        connection.execute("BEGIN IMMEDIATE")
+        current = dict(connection.execute("SELECT * FROM annotations WHERE id=?", (annotation_id,)).fetchone())
+        if current["owner_id"] != auth.current_user_id() and current["visibility"] != "shared":
+            raise HTTPException(403, "笔记共享范围已改变，请刷新后重试")
+        if body.expected_version is not None and body.expected_version != current["version"]:
+            raise HTTPException(409, "笔记已被修改，请刷新后合并")
+        existing = connection.execute("SELECT 1 FROM annotation_versions WHERE annotation_id=? AND version=?", (annotation_id,current["version"])).fetchone()
+        if not existing:
+            core.record_annotation_version(connection,current,"migrated")
+        connection.execute("UPDATE annotations SET note=?,color=?,visibility=?,version=version+1,updated_at=? WHERE id=?", (body.note if body.note is not None else current["note"], body.color if body.color is not None else current["color"],body.visibility or current["visibility"],core.now(),annotation_id))
+        updated = dict(connection.execute("SELECT * FROM annotations WHERE id=?", (annotation_id,)).fetchone())
+        core.record_annotation_version(connection,updated,"updated")
     return core.get_annotation(annotation_id)
+
+
+@router.get("/annotations/{annotation_id}/versions")
+def annotation_versions(annotation_id: str):
+    note = core.get_annotation(annotation_id)
+    with core.db() as connection:
+        rows = connection.execute("SELECT v.*,u.display_name AS editor FROM annotation_versions v LEFT JOIN users u ON u.id=v.editor_id WHERE v.annotation_id=? ORDER BY v.version DESC", (annotation_id,)).fetchall()
+    result = []
+    for row in rows:
+        if note["owner_id"] != auth.current_user_id() and row["visibility"] != "shared":
+            continue
+        item = dict(row)
+        item["content"] = json.loads(item.pop("content_json"))
+        if isinstance(item["content"].get("rects"),str):
+            item["content"]["rects"] = json.loads(item["content"]["rects"])
+        item["editor"] = item["editor"] or "本地所有者"
+        result.append(item)
+    return result
 
 
 @router.delete("/annotations/{annotation_id}", status_code=204)
 def remove_annotation(annotation_id: str):
-    core.get_annotation(annotation_id)
+    old = core.get_annotation(annotation_id, write=True)
     with core.db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        current = dict(connection.execute("SELECT * FROM annotations WHERE id=?", (annotation_id,)).fetchone())
+        if current["owner_id"] != auth.current_user_id() and current["visibility"] != "shared":
+            raise HTTPException(403, "笔记共享范围已改变，请刷新后重试")
+        current["version"] += 1
+        core.record_annotation_version(connection,current,"deleted")
         connection.execute("DELETE FROM annotations WHERE id=?", (annotation_id,))
     return Response(status_code=204)
 
@@ -354,3 +423,4 @@ def export_notes(paper_id: str, project_id: str):
     if not notes:
         lines.append("尚无批注。")
     return Response("\n".join(lines), media_type="text/markdown; charset=utf-8", headers={"Content-Disposition": f"attachment; filename=notes.md; filename*=UTF-8''{quote(paper['title'] + '.notes.md')}", "X-Content-Type-Options": "nosniff"})
+

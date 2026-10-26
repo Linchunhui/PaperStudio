@@ -1,4 +1,6 @@
 .venv/
+.babeldoc-venv/
+backups/
 .env
 .env.*
 !.env.example
@@ -11,3 +13,4 @@ data/
 .DS_Store
 .coverage
 htmlcov/
+

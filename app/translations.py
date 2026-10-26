@@ -12,7 +12,7 @@ from pathlib import Path
 import fitz
 from fastapi import HTTPException
 
-from . import core, pdf
+from . import core, pdf, auth
 
 
 class Stopped(RuntimeError):
@@ -43,7 +43,9 @@ def init_db():
 
 def create_run(con, payload: dict, job_id: str, run_id: str):
     """Create/activate a generation inside the caller's queue-write transaction."""
-    paper = con.execute("SELECT * FROM papers WHERE id=? AND owner_id=?", (payload["paper_id"], core.OWNER_ID)).fetchone()
+    core.get_paper(payload["paper_id"], write=True)
+    core.require_membership(payload["paper_id"], payload["project_id"], write=True)
+    paper = con.execute("SELECT * FROM papers WHERE id=?", (payload["paper_id"],)).fetchone()
     if not paper or paper["sha256"] != payload["source_sha"]:
         raise HTTPException(409, "原文已变化，请重新提交翻译任务")
     if paper["translated_sha256"] != payload["translation_base_sha"] or paper["active_translation_run_id"] != payload.get("translation_base_run_id"):
@@ -59,9 +61,11 @@ def create_run(con, payload: dict, job_id: str, run_id: str):
 
 
 def _active(con, run_id: str, job_id: str, *, running: bool = True):
-    row = con.execute("SELECT r.*,p.active_translation_run_id,p.sha256,j.status AS job_status FROM translation_runs r JOIN papers p ON p.id=r.paper_id JOIN jobs j ON j.id=r.job_id WHERE r.id=? AND r.job_id=? AND p.owner_id=?", (run_id, job_id, core.OWNER_ID)).fetchone()
+    row = con.execute("SELECT r.*,p.active_translation_run_id,p.sha256,j.status AS job_status,j.project_id AS job_project_id FROM translation_runs r JOIN papers p ON p.id=r.paper_id JOIN jobs j ON j.id=r.job_id WHERE r.id=? AND r.job_id=? AND j.owner_id=?", (run_id, job_id, auth.current_user_id())).fetchone()
     if not row or row["active_translation_run_id"] != run_id or row["sha256"] != row["source_sha"]:
         raise HTTPException(409, "译文已在任务提交后更新，保留现有译文；请确认后重新提交翻译任务")
+    core.get_paper(row["paper_id"], write=True)
+    core.require_membership(row["paper_id"], row["job_project_id"], write=True)
     if running and row["job_status"] != "running":
         raise Stopped()
     return row
@@ -216,9 +220,10 @@ def manifest(paper_id: str) -> dict:
 
 def page_alignment(paper_id: str, page: int) -> dict:
     """Read the active page's map and identity from one SQLite snapshot."""
+    core.get_paper(paper_id)
     with core.db() as con:
         con.execute("BEGIN")
-        paper = con.execute("SELECT * FROM papers WHERE id=? AND owner_id=?", (paper_id, core.OWNER_ID)).fetchone()
+        paper = con.execute("SELECT * FROM papers WHERE id=?", (paper_id,)).fetchone()
         if not paper:
             raise HTTPException(404, "论文不存在")
         if not 1 <= page <= paper["page_count"]:
@@ -245,3 +250,4 @@ def page_alignment(paper_id: str, page: int) -> dict:
             if result["status"] in {"ready", "partial"} and "reason" not in mapping:
                 result.pop("reason", None)
         return result
+

@@ -196,7 +196,8 @@ def test_cli_resume_skips_actual_seed_95_weeks_without_network(client, monkeypat
     observed = catalog.observed_hf_weeks()
     assert len(observed) == 95
     assert observed[0] == '2025-W01' and observed[-1] == '2026-W43'
-    assert catalog.stats()['total'] == 6465
+    expected_total = 28919 if (catalog.SEED_DIR / 'manifest.json').exists() else 6465
+    assert catalog.stats()['total'] == expected_total
     async def unexpected_network(week):
         raise AssertionError('Resume should reuse the bundled weekly observations')
     monkeypatch.setattr(catalog, 'refresh_hf', unexpected_network)
@@ -208,3 +209,137 @@ def test_cli_resume_skips_actual_seed_95_weeks_without_network(client, monkeypat
     module.main()
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert len(lines) == 95 and all(row['status'] == 'skipped' for row in lines)
+
+
+
+def test_title_only_records_and_shared_directory_never_collapse(client):
+    source = {'source_id': 'conference', 'source_url': 'https://example.org/program.pdf', 'source_row_id': 'one'}
+    rows = [
+        {'title': 'First distinct work', 'url': 'https://example.org/research/papers', 'url_is_identity': False, 'provenance': [source]},
+        {'title': 'Second distinct work', 'url': None, 'provenance': [{**source, 'source_row_id': 'two'}]},
+    ]
+    assert upload(client, rows).status_code == 200
+    items = client.get('/api/catalog').json()['items']
+    assert len(items) == 2 and all(p['resolve']['action'] == 'search' for p in items)
+    assert all(p['url'] is None for p in items)
+    assert upload(client, rows).json()['unchanged'] == 2
+
+
+def test_combined_conference_filters_use_same_observation(client):
+    meetings = [
+        {'conference': 'ICRA', 'year': 2025, 'presentation': '未保留分类', 'verification_status': 'pending'},
+        {'conference': 'IROS', 'year': 2026, 'presentation': 'Oral', 'verification_status': 'confirmed'},
+    ]
+    response = upload(client, [{'title': 'Robot navigation with a language model', 'conferences': meetings}])
+    assert response.status_code == 200
+    assert client.get('/api/catalog', params={'conference': 'ICRA', 'verification_status': 'confirmed'}).json()['total'] == 0
+    assert client.get('/api/catalog', params={'conference': 'ICRA', 'conference_year': 2025, 'verification_status': 'pending'}).json()['total'] == 1
+    assert client.get('/api/catalog', params={'direction': '大语言模型与智能体'}).json()['total'] == 1
+    stats = client.get('/api/catalog/stats').json()
+    assert stats['source_records'] == 1
+    assert {x['name'] for x in stats['conferences']} == {'ICRA', 'IROS'}
+    assert {x['name'] for x in stats['verification_statuses']} == {'confirmed', 'pending'}
+
+
+def test_conference_source_cannot_redate_metrics_or_be_downloaded(client):
+    row = record(hf_upvotes=7, provenance=[
+        {'source_id': 'hf', 'observed_at': '2026-10-23', 'hf_upvotes': 7},
+        {'source_id': 'conference', 'observed_at': '2026-10-26', 'source_url': 'https://aaai.org/wp-content/uploads/2026/01/Main-track-oral-talks.pdf'},
+    ])
+    assert upload(client, [row, {'title': 'Program-only evidence', 'url': 'https://aaai.org/wp-content/uploads/2026/01/Main-track-oral-talks.pdf', 'pdf_url': 'https://aaai.org/wp-content/uploads/2026/01/Main-track-oral-talks.pdf'}]).status_code == 200
+    items = client.get('/api/catalog').json()['items']
+    observed = next(p for p in items if p.get('arxiv_id'))
+    assert observed['metrics_observed_at']['hf_upvotes'].startswith('2026-10-23')
+    unsafe = next(p for p in items if p['title'] == 'Program-only evidence')
+    assert unsafe['pdf_url'] is None and unsafe['resolve']['action'] == 'search'
+
+
+def test_title_identity_and_ids_stable_across_fresh_databases(client, tmp_path, monkeypatch):
+    row = {'title': 'A Full Paper: Title!', 'provenance': [{'source_id': 'conference', 'source_row_id': 'c:1'}]}
+    upload(client, [row])
+    first = catalog.search()['items'][0]['id']
+    assert upload(client, [{**row, 'title': 'a full paper title'}]).json()['inserted'] == 0
+    monkeypatch.setattr(core, 'DATA_DIR', tmp_path / 'other-db')
+    core.init_db()
+    catalog.init_catalog(seed=False)
+    catalog.import_bytes(json.dumps([row]).encode())
+    assert catalog.search()['items'][0]['id'] == first
+
+
+def test_upgrade_rebuilds_obsolete_seed_aliases_preserves_manual_and_reading(client, tmp_path, monkeypatch):
+    import hashlib
+    old_dataset = {'id': 'institutions-reviewed-2025-2026-snapshot-20261024', 'source_id': 'institution'}
+    obsolete = {'source_id': 'institution', 'notes': '最新复筛CSV第1条；旧版', 'source_url': 'https://example.org/directory'}
+    # Simulate a legacy index that merged two different papers through one URL.
+    upload(client, [{'title': 'Legacy conflated title', 'url': 'https://example.org/directory', 'provenance': [obsolete, {**obsolete, 'notes': '最新复筛CSV第2条；旧版'}]}], old_dataset)
+    upload(client, [{'title': 'User manually curated paper', 'url': 'https://arxiv.org/abs/2301.00001', 'provenance': [{'source_id': 'import', 'notes': 'personal collection'}]}])
+    with core.db() as con:
+        con.execute("INSERT INTO papers(id,title,filename,sha256,page_count,created_at) VALUES('owned-pdf','Personal PDF','files/existing.pdf','sha',1,?)", (core.now(),))
+        con.execute("INSERT INTO project_papers(paper_id,project_id,updated_at) VALUES('owned-pdf','inbox',?)", (core.now(),))
+    seeds = tmp_path / 'replacement'
+    seeds.mkdir()
+    payload = json.dumps({'papers': [
+        {'title': 'Actual first paper', 'url': None, 'provenance': [{**obsolete, 'source_row_id': 'full:1'}]},
+        {'title': 'Actual second paper', 'url': None, 'provenance': [{**obsolete, 'source_row_id': 'full:2'}]},
+    ]}).encode()
+    (seeds / 'full-catalog-001.json').write_bytes(payload)
+    (seeds / 'manifest.json').write_text(json.dumps({'schema_version': 2, 'shards': [{'file': 'full-catalog-001.json', 'sha256': hashlib.sha256(payload).hexdigest()}]}))
+    monkeypatch.setattr(catalog, 'SEED_DIR', seeds)
+    catalog.init_catalog()
+    titles = {paper['title'] for paper in catalog.search()['items']}
+    assert titles == {'Actual first paper', 'Actual second paper', 'User manually curated paper'}
+    with core.db() as con:
+        assert con.execute('SELECT count(*) FROM catalog_legacy_archive').fetchone()[0] == 1
+        assert con.execute("SELECT title FROM papers WHERE id='owned-pdf'").fetchone()[0] == 'Personal PDF'
+        assert con.execute("SELECT count(*) FROM project_papers WHERE paper_id='owned-pdf'").fetchone()[0] == 1
+    catalog.init_catalog()
+    assert catalog.stats()['total'] == 3
+
+
+def test_corrupt_replacement_manifest_does_not_retire_legacy_catalog(client, tmp_path, monkeypatch):
+    upload(client, [{'title': 'Legacy entry', 'provenance': [{'source_id': 'institution', 'notes': '最新复筛CSV第1条'}]}], {'id': 'institutions-reviewed-old'})
+    seeds = tmp_path / 'corrupt-seeds'
+    seeds.mkdir()
+    (seeds / 'full.json').write_text('{"papers": []}')
+    (seeds / 'manifest.json').write_text(json.dumps({'schema_version': 2, 'shards': [{'file': 'full.json', 'sha256': 'bad'}]}))
+    monkeypatch.setattr(catalog, 'SEED_DIR', seeds)
+    catalog.init_catalog()
+    assert catalog.search()['items'][0]['title'] == 'Legacy entry'
+    with core.db() as con:
+        assert con.execute('SELECT count(*) FROM catalog_legacy_archive').fetchone()[0] == 0
+
+
+def test_no_manifest_keeps_both_legacy_hf_and_reviewed_institution_seeds(client, tmp_path, monkeypatch):
+    seeds = tmp_path / 'legacy-seeds'
+    seeds.mkdir()
+    fixtures = [
+        ('hf-weekly-01.json', 'hf-weekly-2025-2026-snapshot-20261023', {'title': 'Legacy HF paper', 'arxiv_id': '2501.01001', 'published_at': '2025-01-02', 'provenance': [{'source_id': 'hf', 'ranking_week': '2025-W01', 'notes': 'HF周榜CSV快照；旧版'}]}),
+        ('institutions-reviewed-01.json', 'institutions-reviewed-2025-2026-snapshot-20261024', {'title': 'Legacy institution paper', 'url': 'https://example.org/research/paper-one', 'year': 2025, 'institutions': ['Legacy Lab'], 'provenance': [{'source_id': 'institution', 'notes': '最新复筛CSV第1条；旧版'}]}),
+    ]
+    for filename, dataset_id, paper in fixtures:
+        (seeds / filename).write_text(json.dumps({'schema_version': 1, 'datasets': [{'id': dataset_id, 'source_id': paper['provenance'][0]['source_id'], 'complete': False}], 'papers': [paper]}))
+    monkeypatch.setattr(catalog, 'SEED_DIR', seeds)
+    catalog.init_catalog()
+    catalog.init_catalog()
+    stats = catalog.stats()
+    assert stats['total'] == 2
+    assert {item['id']: item['count'] for item in stats['sources']} == {'hf': 1, 'institution': 1}
+    assert not stats['import_errors']
+    assert catalog.search(institution='Legacy Lab')['total'] == 1
+    with core.db() as con:
+        assert con.execute('SELECT count(*) FROM catalog_migrations').fetchone()[0] == 0
+        assert con.execute('SELECT count(*) FROM catalog_legacy_archive').fetchone()[0] == 0
+
+
+def test_malformed_manifest_keeps_existing_catalog_and_does_not_import_unverified_rows(client, tmp_path, monkeypatch):
+    upload(client, [{'title': 'Keep existing legacy entry', 'provenance': [{'source_id': 'institution', 'notes': '最新复筛CSV第1条'}]}], {'id': 'institutions-reviewed-old'})
+    seeds = tmp_path / 'malformed-manifest-seeds'
+    seeds.mkdir()
+    (seeds / 'new.json').write_text(json.dumps({'papers': [{'title': 'Unverified replacement'}]}))
+    (seeds / 'manifest.json').write_text(json.dumps({'schema_version': 'invalid', 'shards': [{'file': 'new.json', 'sha256': 'bad'}]}))
+    monkeypatch.setattr(catalog, 'SEED_DIR', seeds)
+    catalog.init_catalog()
+    assert [row['title'] for row in catalog.search()['items']] == ['Keep existing legacy entry']
+    assert catalog.stats()['import_errors']
+    with core.db() as con:
+        assert con.execute('SELECT count(*) FROM catalog_legacy_archive').fetchone()[0] == 0

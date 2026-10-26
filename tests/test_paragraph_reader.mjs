@@ -175,7 +175,7 @@ console.log('PASS: live controller late-response rejection, bidirectional cache 
 // paid/provider task when a paragraph is merely clicked or selected.
 const jobCalls=[];
 Object.assign(context,{
-  paperId:'paper',
+  paperId:'paper', isAdmin:()=>true,
   api:async(path,options)=>{jobCalls.push({path,options});return {id:'translation-job',status:'queued'};},
   refreshJobs:async()=>{},renderSidebar:()=>{},toast:()=>{},
 });
@@ -200,3 +200,4 @@ context.paragraphHint('normal matched paragraph');
 assert.equal(retranslateButton.hidden,true);
 assert.equal(hintElement.textContent,'normal matched paragraph');
 console.log('PASS: explicit retranslation force request and missing-tracking-only action visibility');
+

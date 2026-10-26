@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const source=fs.readFileSync(new URL('../web/app.js',import.meta.url),'utf8').replace(/^import .*$/m,'const mountReader=()=>{};').replace(/^export /gm,'');
 const elements=new Map(),handlers=new Map(),lifecycle=new Map(),requests=[];
-const el=name=>{if(!elements.has(name))elements.set(name,{innerHTML:'',textContent:'',hidden:false,focus(){},classList:{add(){},remove(){}},addEventListener(type,fn){handlers.set(type,fn);}});return elements.get(name);};
+const el=name=>{if(!elements.has(name))elements.set(name,{innerHTML:'',textContent:'',hidden:false,attributes:{},setAttribute(key,value){this.attributes[key]=value;},focus(){},classList:{add(){},remove(){}},addEventListener(type,fn){handlers.set(type,fn);}});return elements.get(name);};
 class Fields {constructor(form){this.values=new Map(Object.entries(form?.data||{}));}get(k){return this.values.get(k)??null;}set(k,v){this.values.set(k,v);}}
 const stats={total:4,by_year:[{year:2025,count:2},{year:2026,count:2}],sources:[{id:'hf',count:3},{id:'institution',count:2}],institutions:[{name:'<img src=x onerror=1>',count:1}],coverage:[{name:'HF weekly snapshot',source:'hf',coverage_start:'2025-W01',coverage_end:'2026-W43',url:'javascript:bad()',note:'Incomplete <script>bad()</script>'}],last_import:null,import_errors:[]};
 const malicious={id:'unsafe',title:'<img src=x onerror=1>',url:'javascript:bad()',pdf_url:'data:text/html,bad',institutions:['<b>Unknown</b>'],authors:[],year:2026,hf_upvotes:null,github_stars:null,github_url:'javascript:bad()',source_ids:['hf'],provenance:[{name:'<script>bad()</script>',url:'javascript:bad()'}]};
@@ -13,6 +13,7 @@ let slowResolve=null,importFailure=false;
 const response=(data,ok=true)=>({ok,headers:new Headers({'content-type':'application/json'}),json:async()=>data});
 const fetch=async(path,request={})=>{
  requests.push({path,request});
+ if(path==='/api/auth/session')return response({user:{id:'local',username:'reader',role:'admin',is_admin:true,inbox_id:'inbox'},csrf_token:'test-csrf'});
  if(path==='/api/projects')return response([{id:'inbox',name:'收件箱',parent_id:null}]);
  if(path==='/api/capabilities')return response({});
  if(path==='/api/skills')return response([]);
@@ -37,6 +38,11 @@ const submit=data=>handlers.get('submit')({preventDefault(){},target:{id:'catalo
 vm.runInContext(source,context);await settle();
 assert.match(el('#app').innerHTML,/论文索引/);
 assert.match(el('#app').innerHTML,/发表年份/);
+assert.match(el('#app').innerHTML,/<details class="catalog-advanced-filters"[^>]*>/);
+assert.doesNotMatch(el('#app').innerHTML,/<details class="catalog-advanced-filters"[^>]*\bopen\b/,'Advanced filters start collapsed');
+assert.match(el('#app').innerHTML,/class="catalog-primary-filters"/);
+assert.doesNotMatch(el('#app').innerHTML,/class="eyebrow"/);
+assert.doesNotMatch(el('#catalog-summary').innerHTML.split('<details')[0],/2025|2026/,'Year breakdown does not occupy the summary row');
 assert.ok(requests.some(r=>r.path.startsWith('/api/catalog?')));
 assert.ok(requests.every(r=>r.request.method!=='POST'),'Opening index must not download papers or call models');
 assert.match(el('#catalog-results').innerHTML,/&lt;img src=x onerror=1&gt;/);
@@ -55,9 +61,13 @@ await click({catalogPage:'2'});
 assert.match(requests.filter(r=>r.path.startsWith('/api/catalog?')).at(-1).path,/page=2/);
 const slow=submit({q:'slow',source:'hf',sort:'votes'});await settle();
 assert.ok(slowResolve);
+assert.match(el('#catalog-results').innerHTML,/Aligned Papers/,'Previous results remain visible during a new request');
+assert.match(el('#catalog-results').innerHTML,/保留上次结果/);
+assert.equal(el('#catalog-results').attributes['aria-busy'],'true');
 await submit({q:'latest',source:'hf',sort:'votes'});await settle();
 slowResolve();await slow;await settle();
 assert.match(el('#catalog-results').innerHTML,/Latest result/);
+assert.equal(el('#catalog-results').attributes['aria-busy'],'false');
 assert.doesNotMatch(el('#catalog-results').innerHTML,/Stale result/,'Late responses must not replace current results');
 await click({catalogPaper:'valid'});
 assert.match(el('#app').innerHTML,/id="import-form"/);
@@ -86,3 +96,4 @@ const hfCount=requests.filter(r=>r.path==='/api/catalog/refresh-hf').length;
 await handlers.get('submit')({preventDefault(){},target:{id:'catalog-hf-form',data:{week:'2024-W43'},querySelector:()=>uploadButton}});
 assert.equal(requests.filter(r=>r.path==='/api/catalog/refresh-hf').length,hfCount);
 console.log('PASS: catalog browse/filter/coverage, safe provenance and links, missing metrics, pagination, stale response rejection, import selection defaults, multipart update and validation errors');
+

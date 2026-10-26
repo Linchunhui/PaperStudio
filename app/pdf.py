@@ -13,6 +13,7 @@ from pathlib import Path
 
 import fitz
 from fastapi import HTTPException
+from .watermarks import redact_page, strip_boilerplate
 
 PDF_LOCK = threading.RLock()
 MAX_PDF_BYTES = 50 * 1024 * 1024
@@ -53,6 +54,7 @@ def page_info(path: Path, page_number: int) -> dict:
     try:
         with PDF_LOCK, fitz.open(path) as doc:
             page = _get_page(doc, page_number)
+            redact_page(page)
             spans = []
             flags = fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES
             for block in page.get_text("dict", flags=flags, sort=False).get("blocks", []):
@@ -92,6 +94,7 @@ def page_svg(path: Path, page_number: int) -> str:
     try:
         with PDF_LOCK, fitz.open(path) as doc:
             page = _get_page(doc, page_number)
+            redact_page(page)
             # Glyph outlines remain vectors. Existing raster images stay images;
             # this does not falsely promise to vectorize scanned pages.
             return page.get_svg_image(text_as_path=True)
@@ -105,7 +108,7 @@ def extract_pages(path: Path) -> list[str]:
     """Expose a serialized MuPDF extraction path to background workers."""
     try:
         with PDF_LOCK, fitz.open(path) as doc:
-            return [page.get_text("text", sort=True) for page in doc]
+            return [strip_boilerplate(page.get_text("text", sort=True)) for page in doc]
     except Exception as exc:
         raise HTTPException(422, "无法提取 PDF 正文") from exc
 
@@ -121,3 +124,4 @@ def page_manifest(path: Path) -> list[dict]:
             ]
     except Exception as exc:
         raise HTTPException(422, "无法读取 PDF 页面清单") from exc
+

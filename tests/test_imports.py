@@ -75,6 +75,31 @@ def test_arxiv_normalization_preserves_version_and_old_ids():
             resolve_source(value)
 
 
+def test_scholarly_landing_pages_resolve_to_their_pdf():
+    assert resolve_source('https://openreview.net/forum?id=Abcd1234')['download_url'] == 'https://openreview.net/pdf?id=Abcd1234'
+    assert resolve_source('https://aclanthology.org/2025.acl-long.605/')['download_url'] == 'https://aclanthology.org/2025.acl-long.605.pdf'
+    assert resolve_source('https://huggingface.co/papers/2501.12948')['download_url'] == 'https://arxiv.org/pdf/2501.12948'
+    assert resolve_source('https://openaccess.thecvf.com/content/CVPR2025/html/Example_CVPR_2025_paper.html')['download_url'].endswith('/papers/Example_CVPR_2025_paper.pdf')
+    with pytest.raises(HTTPException):
+        resolve_source('https://aclanthology.org/2025.acl-long.0/')
+
+
+def test_reuse_imported_url_and_explicit_refresh(client, fake_network):
+    body={'url':'https://arxiv.org/abs/2501.12948v2','title':'Saved paper','processing':{'parse':False}}
+    first=client.post('/api/imports',json=body).json()
+    drain()
+    saved=imports.get_import(first['id'])['paper_id']
+    second=client.post('/api/imports',json=body).json()
+    drain()
+    assert second['paper_id']==saved and len(fake_network)==1
+    resolved=client.post('/api/resolve',json={'url':body['url'],'title':'Saved paper'}).json()
+    assert resolved['paper_id']==saved and resolved['reused']
+    third=client.post('/api/imports',json={**body,'refresh':True}).json()
+    assert third['paper_id'] is None
+    drain()
+    assert len(fake_network)==2
+
+
 def test_real_pdf_available_before_optional_parse_and_missing_ai(client, fake_network):
     response = client.post("/api/imports", json={"url": "https://arxiv.org/abs/2501.12948v2", "project_id": "inbox", "processing": {"parse": True, "brief_modes": ["abstract", "summary"]}})
     assert response.status_code == 202, response.text
@@ -166,14 +191,15 @@ def test_cancel_then_immediate_retry_cannot_publish_old_download(client, fake_ne
 
 
 def test_cancel_retry_cannot_publish_old_parse_cache(client, monkeypatch):
+    from app import parsing
     plan = client.post("/api/imports/file", files={"file": ("paper.pdf", make_pdf(), "application/pdf")}).json()
     started, release = threading.Event(), threading.Event()
-    original = imports.pdf.extract_pages
-    def delayed(path):
+    original = parsing.ensure_parsed
+    def delayed(paper, **kwargs):
         started.set()
         assert release.wait(5)
-        return original(path)
-    monkeypatch.setattr(imports.pdf, "extract_pages", delayed)
+        return original(paper, **kwargs)
+    monkeypatch.setattr(parsing, "ensure_parsed", delayed)
     thread = threading.Thread(target=imports.run_once)
     thread.start()
     assert started.wait(5)
@@ -184,7 +210,7 @@ def test_cancel_retry_cannot_publish_old_parse_cache(client, monkeypatch):
     assert not thread.is_alive()
     assert imports.get_parse_artifact(plan["paper_id"]) is None
     assert imports.get_import(plan["id"])["steps"][1]["status"] == "queued"
-    monkeypatch.setattr(imports.pdf, "extract_pages", original)
+    monkeypatch.setattr(parsing, "ensure_parsed", original)
     drain()
     assert imports.get_parse_artifact(plan["paper_id"])["source_sha"]
 
@@ -332,3 +358,4 @@ def test_stream_size_limit_and_cleanup(tmp_path, monkeypatch):
     with pytest.raises(safe_download.DownloadError):
         safe_download.download_pdf("https://example.org/file.pdf", tmp_path, max_bytes=10)
     assert list(tmp_path.iterdir()) == []
+

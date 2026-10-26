@@ -14,7 +14,8 @@ import statistics
 import fitz
 from fastapi import HTTPException
 
-from . import ai, core, pdf
+from . import ai, core, pdf, auth
+from .watermarks import strip_boilerplate, redact_page
 
 EXTRACTION_VERSION = "pdf-text-blocks-v1"
 PROMPT_VERSION = "paragraph-zh-v1"
@@ -117,12 +118,13 @@ def _line_groups(block: dict) -> list[list[dict]]:
     return groups
 
 
-def _extract(paper: dict, page_number: int) -> list[dict]:
+def _extract_native(paper: dict, page_number: int) -> list[dict]:
     if not 1 <= page_number <= paper["page_count"]:
         raise HTTPException(404, "论文页码不存在")
     try:
         with pdf.PDF_LOCK, fitz.open(core.paper_asset_path(paper)) as document:
             page = document[page_number - 1]
+            redact_page(page)
             flags = fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES
             raw = page.get_text("dict", flags=flags, sort=False)
             items, sizes, characters = [], [], 0
@@ -144,7 +146,7 @@ def _extract(paper: dict, page_number: int) -> list[dict]:
                         rects.append(rect)
                         bbox |= fitz.Rect(line["bbox"])
                         fonts.extend(float(span.get("size", 0)) for span in spans if span.get("size", 0) > 0)
-                    text = _join_lines(lines)
+                    text = strip_boilerplate(_join_lines(lines))
                     if not text:
                         continue
                     characters += len(text)
@@ -169,17 +171,63 @@ def _extract(paper: dict, page_number: int) -> list[dict]:
         raise HTTPException(422, "本页无法提取可重排文本，请使用原 PDF 阅读。") from exc
 
 
+
+def _extract(paper: dict, page_number: int) -> list[dict]:
+    from . import parsing
+    if not 1 <= page_number <= paper["page_count"]:
+        raise HTTPException(404, "论文页码不存在")
+    cached = parsing.load_cached(paper["sha256"], paper.get("_parse_cache_namespace"))
+    if cached:
+        page = next((p for p in cached["pages"] if p["page"] == page_number), None)
+        if page is not None:
+            return json.loads(json.dumps(page["blocks"]))
+    return _extract_native(paper, page_number)
+
+
+def _existing_translation(paper, page_number):
+    """Expose the actual existing PDF text without pretending page=paragraph alignment."""
+    from . import translations
+    if not paper.get("translated_filename") and not paper.get("active_translation_run_id"):
+        return None
+    if paper.get("active_translation_run_id"):
+        with core.db() as con:
+            run = con.execute("SELECT source_sha FROM translation_runs WHERE id=? AND paper_id=?", (paper["active_translation_run_id"], paper["id"])).fetchone()
+        if not run or run["source_sha"] != paper["sha256"]:
+            return None
+        try:
+            asset = translations.page_asset(paper, page_number)
+        except HTTPException:
+            return None
+        path, asset_page = asset["path"], asset["pdf_page"]
+        source_sha, run_id = asset["source_sha"], asset["translation_run_id"]
+    else:
+        path, asset_page = core.paper_asset_path(paper, "translation"), page_number
+        source_sha, run_id = paper["translated_sha256"], None
+    try:
+        with pdf.PDF_LOCK, fitz.open(path) as document:
+            text = strip_boilerplate(document[asset_page - 1].get_text("text", sort=True))
+        return {"text": text, "page": page_number, "source_sha": source_sha,
+                "original_sha": paper["sha256"], "translation_run_id": run_id,
+                "alignment": "page-only", "status": "ready" if text else "no-text"}
+    except Exception:
+        return None
+
 def page_reading(paper_id: str, page_number: int, project_id: str | None = None) -> dict:
     paper = core.get_paper(paper_id)
     if project_id is not None:
+        project_id = core.get_project(project_id)["id"]
         core.require_membership(paper_id, project_id)
     blocks = _extract(paper, page_number)
     if project_id and blocks:
         _attach_translations(paper, page_number, project_id, blocks)
+    from . import parsing
+    cached = parsing.load_cached(paper["sha256"], paper.get("_parse_cache_namespace"))
+    warnings = list(cached["coverage"].get("warnings", [])) if cached else []
+    warnings.append("图表、复杂公式及多栏阅读顺序请对照原页核验。" if blocks else "本页没有可用文字层，可能是图片或扫描页；请在原 PDF 中阅读或导入 OCR 后的 PDF。")
     return {"paper_id": paper_id, "page": page_number, "source_sha": paper["sha256"],
-            "extraction_version": EXTRACTION_VERSION, "blocks": blocks, "has_text": bool(blocks),
-            "warnings": ["重排基于 PDF 文字层；图表、复杂公式及多栏阅读顺序请对照原页核验。"] if blocks
-                        else ["本页没有可用文字层，可能是图片或扫描页；请在原 PDF 中阅读或导入 OCR 后的 PDF。"]}
+            "extraction_version": cached["version"] if cached else EXTRACTION_VERSION,
+            "parser": cached["provider"] if cached else "pymupdf", "blocks": blocks, "has_text": bool(blocks),
+            "existing_translation": _existing_translation(paper, page_number), "warnings": warnings}
 
 
 def _attach_translations(paper: dict, page_number: int, project_id: str, blocks: list[dict]):
@@ -196,7 +244,7 @@ def _attach_translations(paper: dict, page_number: int, project_id: str, blocks:
             AND json_extract(payload,'$.source_sha')=?
             AND json_extract(payload,'$.paragraph_prompt_version')=?
             AND json_extract(payload,'$.skill.sha256')=?"""
-        args = [paper["id"], project_id, core.OWNER_ID, page_number, paper["sha256"], PROMPT_VERSION,
+        args = [paper["id"], project_id, auth.current_user_id(), page_number, paper["sha256"], PROMPT_VERSION,
                 hashlib.sha256(TRANSLATION_SYSTEM.encode()).hexdigest()]
         if cfg:
             query += " AND json_extract(payload,'$.provider.base_url')=? AND json_extract(payload,'$.provider.model')=?"
@@ -248,7 +296,9 @@ def run_translation(payload: dict, cancelled, progress) -> tuple[str, dict]:
     if cancelled():
         raise ai.Cancelled()
     progress("正在翻译所选段落", coverage)
-    answer = ai.complete(system, source, cfg)
+    with ai.request_context(cancelled):
+        answer = ai.complete(system, source, cfg)
     if cancelled():
         raise ai.Cancelled()
     return answer, coverage
+

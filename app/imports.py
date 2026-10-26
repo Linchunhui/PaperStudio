@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import tempfile
@@ -10,17 +11,18 @@ import threading
 
 from fastapi import HTTPException
 
-from . import core, jobs, pdf, safe_download
+from . import auth, core, jobs, pdf, safe_download
 from .source_resolver import resolve_source
 
 _STOP = threading.Event()
 _WAKE = threading.Event()
 _LOCK = threading.RLock()
 _THREAD: threading.Thread | None = None
-PARSER_VERSION = "pymupdf-text-v1"
+PARSER_VERSION = "babeldoc-first-v2"
 MODES = {"abstract", "cards", "summary", "all"}
 ACTIVE = {"queued", "running"}
 FAILURES = {"failed", "blocked", "interrupted", "cancelled"}
+_LOG = logging.getLogger(__name__)
 
 
 def init_imports():
@@ -80,7 +82,7 @@ def normalize_processing(value: dict | None) -> dict:
 
 def _row(import_id: str) -> dict:
     with core.db() as con:
-        row = con.execute("SELECT * FROM imports WHERE id=? AND owner_id=?", (import_id, core.OWNER_ID)).fetchone()
+        row = con.execute("SELECT * FROM imports WHERE id=? AND owner_id=?", (import_id, auth.current_user_id())).fetchone()
     if not row:
         raise HTTPException(404, "导入任务不存在")
     return dict(row)
@@ -92,8 +94,8 @@ def _steps(import_id: str) -> list[dict]:
 
 
 def create_import(*, project_id: str, url: str | None = None, paper_id: str | None = None,
-                  title: str = "", processing: dict | None = None) -> dict:
-    core.get_project(project_id)
+                  title: str = "", processing: dict | None = None, refresh: bool = False) -> dict:
+    project_id = core.get_project(project_id, write=True)["id"]
     if bool(url) == bool(paper_id):
         raise HTTPException(422, "请提供一个链接或一个已入库论文 ID")
     if len(title) > 500:
@@ -106,24 +108,32 @@ def create_import(*, project_id: str, url: str | None = None, paper_id: str | No
         source = {"kind": "existing-paper", "source_sha": paper["sha256"], "canonical_url": None}
     else:
         source = resolve_source(url)
+        # Opening an already imported title reuses the current immutable PDF.
+        # An explicit refresh still fetches a new version of an unversioned URL.
+        existing = None if refresh else _existing_for_source(source)
+        if existing:
+            paper_id = existing["id"]
+            core.link_paper(paper_id, project_id)
+            title = title.strip() or existing["title"]
         # Validate literal/private targets and DNS before accepting, then again
         # on every actual connection; the download socket is pinned separately.
-        try:
-            safe_download.validated_target(source["download_url"])
-        except safe_download.DownloadError as exc:
-            raise HTTPException(422, str(exc)) from None
-    frozen = json.dumps({"source": source, "processing": processing, "project_id": project_id}, ensure_ascii=False, sort_keys=True)
+        if not paper_id:
+            try:
+                safe_download.validated_target(source["download_url"])
+            except safe_download.DownloadError as exc:
+                raise HTTPException(422, str(exc)) from None
+    frozen = json.dumps({"source": source, "processing": processing, "project_id": project_id, "refresh": refresh}, ensure_ascii=False, sort_keys=True)
     key = hashlib.sha256(frozen.encode()).hexdigest()
     with _LOCK, core.db() as con:
         con.execute("BEGIN IMMEDIATE")
         # Only coalesce active requests: an unversioned arXiv URL may have new
         # bytes tomorrow, and explicit re-import must be able to retrieve them.
-        old = con.execute("SELECT id FROM imports WHERE dedupe_key=? AND status IN ('queued','running') AND owner_id=? ORDER BY created_at DESC LIMIT 1", (key, core.OWNER_ID)).fetchone()
+        old = con.execute("SELECT id FROM imports WHERE dedupe_key=? AND status IN ('queued','running') AND owner_id=? ORDER BY created_at DESC LIMIT 1", (key, auth.current_user_id())).fetchone()
         if old:
             import_id = old["id"]
         else:
             import_id, timestamp = core.uid(), core.now()
-            con.execute("INSERT INTO imports(id,project_id,paper_id,title,source_json,processing_json,status,dedupe_key,created_at,updated_at,owner_id) VALUES(?,?,?,?,?,?,'queued',?,?,?,?)", (import_id, project_id, paper_id, title.strip(), json.dumps(source, ensure_ascii=False), json.dumps(processing), key, timestamp, timestamp, core.OWNER_ID))
+            con.execute("INSERT INTO imports(id,project_id,paper_id,title,source_json,processing_json,status,dedupe_key,created_at,updated_at,owner_id) VALUES(?,?,?,?,?,?,'queued',?,?,?,?)", (import_id, project_id, paper_id, title.strip(), json.dumps(source, ensure_ascii=False), json.dumps(processing), key, timestamp, timestamp, auth.current_user_id()))
             download_id = core.uid()
             definitions = [(download_id, "download", "", "succeeded" if paper_id else "queued", [])]
             parse_id = None
@@ -142,6 +152,23 @@ def create_import(*, project_id: str, url: str | None = None, paper_id: str | No
                 con.execute("INSERT INTO import_steps(id,import_id,kind,mode,status,dependencies_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", (sid, import_id, kind, mode, status, json.dumps(dependencies), timestamp, timestamp))
     _WAKE.set()
     return get_import(import_id)
+
+
+def _existing_for_source(source: dict) -> dict | None:
+    """Reuse only the caller's previously resolved source, never a public directory alias."""
+    canonical = source.get("canonical_url")
+    if not canonical:
+        return None
+    with core.db() as con:
+        rows = con.execute("SELECT paper_id,source_json FROM paper_sources WHERE owner_id=? ORDER BY created_at DESC", (auth.current_user_id(),)).fetchall()
+    for row in rows:
+        try:
+            previous = json.loads(row["source_json"])
+            if previous.get("canonical_url") == canonical and previous.get("kind") == source.get("kind"):
+                return core.get_paper(row["paper_id"])
+        except (ValueError, HTTPException):
+            continue
+    return None
 
 
 def _update_step(step_id: str, *, status: str | None = None, error: str | None = None, progress: dict | None = None, job_id: str | None = None, owns_job: bool | None = None, expected_generation: int | None = None):
@@ -226,9 +253,9 @@ def get_import(import_id: str) -> dict:
 
 
 def list_imports(project_id: str | None = None, paper_id: str | None = None) -> list[dict]:
-    query, args = "SELECT id FROM imports WHERE owner_id=?", [core.OWNER_ID]
+    query, args = "SELECT id FROM imports WHERE owner_id=?", [auth.current_user_id()]
     if project_id:
-        core.get_project(project_id)
+        project_id = core.get_project(project_id)["id"]
         query += " AND project_id=?"
         args.append(project_id)
     if paper_id:
@@ -266,7 +293,7 @@ def retry(import_id: str) -> dict:
         row = _row(import_id)
         if row["status"] in ACTIVE or row["status"] == "succeeded":
             raise HTTPException(409, "只有失败、受阻、取消或中断的导入计划可以重试")
-        core.get_project(row["project_id"])
+        core.get_project(row["project_id"], write=True)
         with core.db() as con:
             con.execute("UPDATE imports SET status='queued',error=NULL,generation=generation+1,updated_at=? WHERE id=?", (core.now(), import_id))
             con.execute("UPDATE import_steps SET status='queued',error=NULL,progress_json=?,updated_at=? WHERE import_id=? AND status IN ('failed','blocked','cancelled','interrupted')", (json.dumps({"retry_requested": True}), core.now(), import_id))
@@ -293,7 +320,7 @@ def _download(row: dict, step: dict):
             paper = core.add_paper(content, row["project_id"], row["title"], filename)
             with core.db() as con:
                 con.execute("UPDATE imports SET paper_id=?,updated_at=? WHERE id=?", (paper["id"], core.now(), row["id"]))
-                con.execute("INSERT OR IGNORE INTO paper_sources(id,paper_id,source_json,source_sha,resolved_url,created_at,owner_id) VALUES(?,?,?,?,?,?,?)", (core.uid(), paper["id"], row["source_json"], paper["sha256"], result["resolved_url"], core.now(), core.OWNER_ID))
+                con.execute("INSERT OR IGNORE INTO paper_sources(id,paper_id,source_json,source_sha,resolved_url,created_at,owner_id) VALUES(?,?,?,?,?,?,?)", (core.uid(), paper["id"], row["source_json"], paper["sha256"], result["resolved_url"], core.now(), auth.current_user_id()))
             _update_step(step["id"], status="succeeded", progress={"downloaded_bytes": result["size_bytes"], "source_sha": paper["sha256"], "page_count": paper["page_count"]}, expected_generation=row["generation"])
     finally:
         result["path"].unlink(missing_ok=True)
@@ -301,7 +328,7 @@ def _download(row: dict, step: dict):
 
 def get_cached_fulltext(source_sha: str) -> dict | None:
     with core.db() as con:
-        row = con.execute("SELECT * FROM parse_artifacts WHERE source_sha=? AND parser_version=?", (source_sha, PARSER_VERSION)).fetchone()
+        row = con.execute("SELECT * FROM parse_artifacts WHERE source_sha=? ORDER BY CASE WHEN parser_version=? THEN 0 ELSE 1 END,created_at DESC LIMIT 1", (source_sha, PARSER_VERSION)).fetchone()
     if not row:
         return None
     path = (core.DATA_DIR / row["filename"]).resolve()
@@ -312,7 +339,7 @@ def get_cached_fulltext(source_sha: str) -> dict | None:
     except (ValueError, OSError):
         return None
     return value if (isinstance(value, dict) and value.get("source_sha") == source_sha
-                     and value.get("parser_version") == PARSER_VERSION
+                     and value.get("parser_version") == row["parser_version"]
                      and isinstance(value.get("fulltext"), str) and isinstance(value.get("coverage"), dict)
                      and isinstance(value.get("pages"), list)) else None
 
@@ -327,14 +354,16 @@ def _parse(row: dict, step: dict):
     if cached:
         _update_step(step["id"], status="succeeded", progress={"reused": True, **cached["coverage"]}, expected_generation=row["generation"])
         return
-    page_texts = pdf.extract_pages(core.paper_path(paper["id"]))
+    from . import parsing
+    parsed = parsing.ensure_parsed(paper, cancelled=lambda: _cancelled(row["id"], row["generation"]))
+    page_texts = [page.get("text") or "\n".join(block.get("text", "") for block in page.get("blocks", [])) for page in parsed["pages"]]
     empty = [index + 1 for index, text in enumerate(page_texts) if not text.strip()]
-    coverage = {"total_pages": len(page_texts), "text_pages": len(page_texts) - len(empty), "empty_text_pages": empty, "visual_evidence_verified": False, "scope": "pdf-extracted-text"}
+    coverage = {**parsed.get("coverage", {}), "total_pages": len(page_texts), "text_pages": len(page_texts) - len(empty), "empty_text_pages": empty, "visual_evidence_verified": False, "scope": "pdf-extracted-text", "parser": parsed.get("provider", "unknown")}
     if len(empty) == len(page_texts):
         _update_step(step["id"], status="blocked", error="原始 PDF 已保存，但没有可提取文字层；全文解析与摘要需要先 OCR。", progress=coverage, expected_generation=row["generation"])
         return
     fulltext = "\n".join(f"\n[PDF 第 {i + 1} 页]\n{text.strip() or '[本页未提取到文本，可能为空白页、图像页或扫描页]'}" for i, text in enumerate(page_texts))
-    artifact = {"source_sha": paper["sha256"], "parser_version": PARSER_VERSION, "pages": [{"page": i + 1, "text": text} for i, text in enumerate(page_texts)], "fulltext": fulltext, "coverage": coverage}
+    artifact = {**parsed, "source_sha": paper["sha256"], "parser_version": PARSER_VERSION, "provider": parsed.get("provider"), "pages": [{**parsed["pages"][i], "page": i + 1, "text": text} for i, text in enumerate(page_texts)], "fulltext": fulltext, "coverage": coverage}
     directory = core.DATA_DIR / "cache" / "parsed"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / (paper["sha256"] + ".json")
@@ -356,7 +385,7 @@ def _parse(row: dict, step: dict):
 def _claim() -> tuple[dict, dict] | None:
     with _LOCK, core.db() as con:
         con.execute("BEGIN IMMEDIATE")
-        rows = con.execute("SELECT s.* FROM import_steps s JOIN imports i ON i.id=s.import_id WHERE s.status='queued' AND i.status IN ('queued','running') AND i.owner_id=? ORDER BY s.rowid", (core.OWNER_ID,)).fetchall()
+        rows = con.execute("SELECT s.*,i.owner_id AS task_owner FROM import_steps s JOIN imports i ON i.id=s.import_id WHERE s.status='queued' AND i.status IN ('queued','running') ORDER BY s.rowid").fetchall()
         for value in rows:
             step = dict(value)
             dependencies = json.loads(step["dependencies_json"])
@@ -364,7 +393,12 @@ def _claim() -> tuple[dict, dict] | None:
                 continue
             # Already-enqueued model jobs are polled, not executed in this worker.
             if step["job_id"]:
-                job = jobs.get_job(step["job_id"])
+                try:
+                    with auth.as_user(step["task_owner"]):
+                        job = jobs.get_job(step["job_id"])
+                except HTTPException:
+                    con.execute("UPDATE import_steps SET status='failed',error='关联任务已不可访问，请检查项目权限',updated_at=? WHERE id=?", (core.now(), step["id"]))
+                    continue
                 if job["status"] in ACTIVE or job["status"] == "succeeded":
                     if json.loads(step["progress_json"]).get("retry_requested"):
                         con.execute("UPDATE import_steps SET status=?,progress_json='{}',error=NULL,updated_at=? WHERE id=?", (job["status"], core.now(), step["id"]))
@@ -379,16 +413,27 @@ def _claim() -> tuple[dict, dict] | None:
 def run_once() -> bool:
     """Advance at most one download, parse or model-enqueue step, never a model call."""
     with core.db() as con:
-        ids = [r["id"] for r in con.execute("SELECT id FROM imports WHERE status IN ('queued','running') AND owner_id=?", (core.OWNER_ID,))]
-    for import_id in ids:
-        _refresh(import_id)
+        rows = [dict(r) for r in con.execute("SELECT id,owner_id FROM imports WHERE status IN ('queued','running')")]
+    for current in rows:
+        with auth.as_user(current["owner_id"]):
+            try:
+                _refresh(current["id"])
+            except HTTPException:
+                with core.db() as con:
+                    con.execute("UPDATE imports SET status='failed',error='导入任务已不可访问，请检查账号与项目权限',updated_at=? WHERE id=?", (core.now(), current["id"]))
     if _STOP.is_set():
         return False
     claimed = _claim()
     if claimed is None:
         return False
     row, step = claimed
+    with auth.as_user(row["owner_id"]):
+        return _advance(row, step)
+
+
+def _advance(row: dict, step: dict) -> bool:
     try:
+        core.get_project(row["project_id"], write=True)
         if _cancelled(row["id"], row["generation"]):
             raise safe_download.DownloadCancelled()
         if step["kind"] == "download":
@@ -407,7 +452,12 @@ def run_once() -> bool:
         _update_step(step["id"], status="blocked" if exc.status_code == 409 else "failed", error=str(exc.detail), expected_generation=row["generation"])
     except safe_download.DownloadError as exc:
         _update_step(step["id"], status="failed", error=str(exc), expected_generation=row["generation"])
-    except Exception:
+    except Exception as exc:
+        from .ai import Cancelled
+        if isinstance(exc, Cancelled):
+            _update_step(step["id"], status="interrupted" if _STOP.is_set() else "cancelled", expected_generation=row["generation"])
+            _refresh(row["id"])
+            return True
         _update_step(step["id"], status="failed", error="导入处理失败；请检查公开 PDF 链接或服务配置后重试", expected_generation=row["generation"])
     _refresh(row["id"])
     return True
@@ -415,7 +465,12 @@ def run_once() -> bool:
 
 def _loop():
     while not _STOP.is_set():
-        if not run_once():
+        try:
+            advanced = run_once()
+        except Exception:
+            _LOG.exception('Import worker iteration failed; queue will remain available')
+            advanced = False
+        if not advanced:
             _WAKE.wait(timeout=1)
             _WAKE.clear()
 
@@ -439,3 +494,4 @@ def stop_worker():
         _THREAD.join(timeout=2)
     with _LOCK, core.db() as con:
         con.execute("UPDATE import_steps SET status='interrupted',error='导入服务停止，请手动重试',updated_at=? WHERE status='running' AND job_id IS NULL", (core.now(),))
+

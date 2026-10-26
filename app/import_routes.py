@@ -7,8 +7,53 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import core, imports, pdf
+from .source_resolver import resolve_source
 
 router = APIRouter(prefix="/api", tags=["imports"])
+
+
+class ResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str | None = Field(default=None, max_length=4096)
+    project_id: str = Field(default="inbox", min_length=1, max_length=100)
+    title: str = Field(default="", max_length=500)
+
+
+@router.post('/resolve')
+def resolve_paper(body: ResolveRequest):
+    """Resolve to an accessible saved PDF; never confuse an index page with one."""
+    import re
+    import unicodedata
+    project = core.get_project(body.project_id)
+    source = None
+    paper = None
+    if body.url:
+        try:
+            source = resolve_source(body.url)
+            paper = imports._existing_for_source(source)
+        except HTTPException:
+            pass
+    # Exact title fallback is limited to visible papers and rejects ambiguity.
+    if not paper and body.title.strip():
+        key = lambda s: re.sub(r'[^\w]', '', unicodedata.normalize('NFKC', s).casefold())
+        with core.db() as con:
+            candidates = [dict(r) for r in con.execute('SELECT id,title FROM papers') if key(r['title']) == key(body.title)]
+        visible = []
+        for candidate in candidates:
+            try:
+                visible.append(core.get_paper(candidate['id']))
+            except HTTPException:
+                continue
+        if len(visible) == 1:
+            paper = visible[0]
+    if paper:
+        try:
+            core.require_membership(paper['id'], project['id'])
+        except HTTPException:
+            core.link_paper(paper['id'], project['id'])
+        return {'paper_id':paper['id'], 'project_id':project['id'], 'reused':True}
+    return {'paper_id':None, 'project_id':project['id'], 'reused':False,
+            'source':source, 'action':'import' if source else 'search', 'query':body.title}
 
 
 class ImportRequest(BaseModel):
@@ -18,6 +63,7 @@ class ImportRequest(BaseModel):
     project_id: str = Field(default="inbox", min_length=1, max_length=100)
     title: str = Field(default="", max_length=500)
     processing: dict = Field(default_factory=dict)
+    refresh: bool = False
 
     @model_validator(mode="after")
     def source_exactly_once(self):
@@ -73,3 +119,4 @@ def parsed_paper(paper_id: str):
     if value is None:
         raise HTTPException(404, "这篇论文尚未完成全文文字解析")
     return value
+

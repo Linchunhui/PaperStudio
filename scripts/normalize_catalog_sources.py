@@ -1,11 +1,10 @@
-"""Normalize reviewed CSV snapshots into the bundled paper discovery index.
+"""Normalize supplied CSV snapshots without direction or year exclusions into the bundled paper discovery index.
 
 Usage: python scripts/normalize_catalog_sources.py --hf-csv HF.csv \
     --institution-csv institutions.csv --output config/catalog
 
 This is a deterministic conversion, not a new affiliation audit or web crawl.
-HF inclusion follows ranking week (2025/2026); institution inclusion follows
-the source's publication-date field. Unknown metrics remain null, never zero.
+Source publication dates and ranking weeks remain separate. All institution rows are retained. Unknown metrics remain null, never zero.
 """
 from __future__ import annotations
 
@@ -13,6 +12,8 @@ import argparse
 import csv
 from datetime import date
 import hashlib
+import html
+import unicodedata
 import json
 from pathlib import Path
 import re
@@ -75,9 +76,9 @@ def github_choice(row: dict) -> tuple[str | None, int | None, list[str]]:
 
 def hf_record(row: dict) -> dict | None:
     week = clean(row["HF周榜"])
-    match = re.fullmatch(r"(2025|2026)-W(\d{2})", week)
+    match = re.fullmatch(r"(20\d{2})-W(\d{2})", week)
     if not match:
-        return None
+        raise ValueError("Invalid HF ranking week")
     date.fromisocalendar(int(match[1]), int(match[2]), 1)
     published = clean(row["论文发表日期"])
     if published:
@@ -100,37 +101,31 @@ def hf_record(row: dict) -> dict | None:
     }
 
 
-def institution_record(row: dict) -> dict | None:
-    published = clean(row["原文发表日期"])
-    if not published:
-        raise ValueError("Reviewed institution row lacks publication date")
-    year = int(published) if re.fullmatch(r"\d{4}", published) else date.fromisoformat(published).year
-    if year not in {2025, 2026}:
-        return None
-    source_url, pdf_url = url(row["论文链接"]), url(row["PDF链接"])
-    # Generic institution directories are evidence, not unique paper IDs.
-    canonical_url = pdf_url if source_url == "https://cohere.com/research/papers" and pdf_url else source_url
-    institutions = names(row["目标单位"])
-    github, stars, links = github_choice(row)
-    extra = "仅有机构目录链接，论文独立链接与PDF待核。" if source_url == "https://cohere.com/research/papers" and not pdf_url else ""
-    notes = (
-        f"最新复筛CSV第{row['序号']}条；原发表日期：{published}；{row['复筛批次']}；{row['证据标记']}。"
-        f"{row['原筛选口径与理由']} 原核验备注：{row['原核验备注']}。"
-        f"HF周榜复核：{row['HF周榜复核']}。HF点赞来源：{row['HF点赞来源']}；"
-        f"采集时间：{row['HF采集时间UTC']}。GitHub采集时间：{row['Star采集时间UTC']}；"
-        f"状态：{row['Star获取状态']}；逐仓库：{row['逐仓库Star']}；链接：{' ; '.join(links)}。{extra}"
-    )
+def institution_record(row: dict) -> dict:
+    def pick(*keys):
+        return next((row[key] for key in keys if key in row), "")
+    published = clean(pick("原文日期", "原文发表日期"))
+    year = int(published) if re.fullmatch(r"\d{4}", published) else date.fromisoformat(published).year if published else number(pick("日期年份"))
+    source_url, pdf_url = url(row.get("论文链接")), url(row.get("PDF链接"))
+    directory = source_url and urlsplit(source_url).path.rstrip("/") in {"/research/papers", "/research/publications", "/research", "/publications"}
+    canonical_url = pdf_url if directory else source_url
+    institutions = names(row.get("目标单位"))
+    metric_row = {**row, "GitHub Star最高值（10月24日）": pick("Star最高值（10月24日快照）", "GitHub Star最高值（10月24日）")}
+    github, stars, links = github_choice(metric_row)
     return {
         "title": clean(row["论文标题"]), "url": canonical_url, "pdf_url": pdf_url,
-        "arxiv_id": arxiv(row["可提取arXiv ID"]), "doi": clean(row["可提取DOI"]) or None,
+        "url_is_identity": False,
+        "arxiv_id": arxiv(pick("arXiv ID", "可提取arXiv ID")), "doi": clean(pick("DOI", "可提取DOI")) or None,
         "published_at": published if len(published) == 10 else None, "year": year, "institutions": institutions,
-        "hf_upvotes": number(row["HF累计点赞（10月24日）"]),
+        "hf_upvotes": number(pick("HF点赞（10月24日快照）", "HF累计点赞（10月24日）")),
         "github_url": github, "github_stars": stars,
         "provenance": [{
             "source_id": "institution", "source_url": source_url,
+            "source_row_id": "institution-csv:" + pick("论文总表序号", "序号"),
             "observed_at": "2026-10-24", "institutions": institutions,
-            "institution_evidence": "用户复筛清单中的目标机构标签，并非完整作者署名；沿用原核验备注，未新增署名核实。",
-            "notes": notes,
+            "institution_evidence": "用户清单中的目标机构标签，并非完整作者署名。",
+            "notes": "全量保留；原有方向/复筛标签只作备注，不用于删除。指标沿用2026-10-24采集快照。",
+            "raw_record": row,
         }],
     }
 
@@ -140,7 +135,8 @@ def identity(record: dict) -> str:
         return "arxiv:" + record["arxiv_id"]
     if record.get("doi"):
         return "doi:" + unquote(record["doi"]).casefold()
-    return "url:" + record["url"]
+    title = unicodedata.normalize("NFKC", html.unescape(record["title"])).casefold()
+    return "title:" + "".join(char for char in title if char.isalnum())
 
 
 def merge_records(records: list[dict]) -> list[dict]:
@@ -191,13 +187,13 @@ def main():
         "note": f"来源HF周榜_2025-2026.csv（SHA256 {hashlib.sha256(args.hf_csv.read_bytes()).hexdigest()}）。{hf_input}行，规范化{len(hf)}篇；95周，2025-W01为48条，其余94周各50条；2026-W43为周中快照。按榜单周入选，含39篇发表于2024年的论文；发表年份保留原值。点赞/Star均为采集快照，不是历史周内值。机构沿用HF标签或自动提取，676篇未取得机构。不是2026全年完整榜单。",
     }
     institution_dataset = {
-        "id": "institutions-reviewed-2025-2026-snapshot-20261024", "name": "重点机构复筛论文 2025–2026 · 2026-10-24 快照",
+        "id": "institutions-all-snapshot-20261024", "name": "重点机构全量论文 · 2026-10-24 指标快照",
         "source_id": "institution", "observed_at": "2026-10-24",
-        "coverage_start": "2025-01-01", "coverage_end": "2026-10-21", "complete": False,
-        "note": f"来源机构论文复筛汇总.csv（SHA256 {hashlib.sha256(args.institution_csv.read_bytes()).hexdigest()}）。最新版{institution_input}条（原范围2023–2026），本索引按原发表日期保留2025–2026的{len(institutions)}条；不重新并入6134条旧版中已移出的记录。机构为目标标签并非完整署名，日期可能是会议/期刊日期；方向复筛并非全文审查，链接未逐条下载验证。HF/Star沿用2026-10-24采集快照，缺失不代表未开源。不是机构完整产出统计。",
+        "coverage_start": "2023-10-21", "coverage_end": "2026-10-21", "complete": False,
+        "note": f"输入文件SHA256 {hashlib.sha256(args.institution_csv.read_bytes()).hexdigest()}；原{institution_input}行，保留{len(institutions)}条。无方向或年份删除。机构是目标标签并非完整署名；日期可能为会议/期刊日期；指标是2026-10-24快照。不是机构完整产出统计。",
     }
     write_shards(args.output, "hf-weekly", hf, hf_dataset)
-    write_shards(args.output, "institutions-reviewed", institutions, institution_dataset)
+    write_shards(args.output, "institutions-all", institutions, institution_dataset)
     print(json.dumps({"hf_input_rows": hf_input, "hf_papers": len(hf), "institution_input_rows": institution_input,
                       "institution_papers": len(institutions), "canonical_overlap": len(overlap),
                       "unique_papers": len(set(map(identity, hf + institutions)))}, ensure_ascii=False))
@@ -205,3 +201,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

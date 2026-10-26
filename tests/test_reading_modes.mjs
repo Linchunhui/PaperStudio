@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const source=fs.readFileSync(new URL('../web/reader.js',import.meta.url),'utf8');
 const between=(a,b)=>{const start=source.indexOf(a),end=source.indexOf(b,start+a.length);assert.ok(start>=0&&end>start);return source.slice(start,end);};
-const context=vm.createContext({AbortController,Promise,encodeURIComponent});
+const context=vm.createContext({AbortController,Promise,encodeURIComponent,isAdmin:()=>true});
 vm.runInContext(between('// A page','export async function mountReader').replaceAll('export ',''),context);
 const box={x:.1,y:.1,width:.3,height:.15};
 const blocks=[{id:'first',type:'paragraph',text:'Original <script> text.',rects:[box],translation:null},{id:'second',text:'Another paragraph.',rects:[{...box,y:.5}],translation:null}];
@@ -74,7 +74,7 @@ blocks[0].translation={...job,status:'succeeded',result_markdown:'中文。'};
 await context.translateReadingBlock(1,'first');assert.equal(requests.length,1,'successful result is reused without a provider request');
 context.state.capabilities.ai_configured=false;
 await context.translateReadingBlock(1,'first');assert.equal(requests.length,1,'cached Chinese remains readable without current model configuration');
-await assert.rejects(context.translateReadingBlock(1,'second'),/AI_BASE_URL/);assert.equal(requests.length,1);
+await assert.rejects(context.translateReadingBlock(1,'second'),/管理员设置/);assert.equal(requests.length,1);
 
 // A generic jobs history must never resurrect a cache rejected by GET reading
 // after model, prompt or limits changed. Only an accepted job ID may update.
@@ -92,3 +92,4 @@ vm.runInContext(between('  function readingTranslation(', '  function blockTrans
 assert.match(context.readingTranslation({status:'succeeded',result_markdown:'<img src=x onerror=alert(1)>'}),/&lt;img/);
 assert.doesNotMatch(context.readingTranslation({status:'failed',error:'<script>bad</script>'}),/<script>/);
 console.log('PASS: default untranslated modes, source block selection, precise-note isolation, late response protection, explicit paragraph POST, cache reuse, accepted-job identity and escaped results');
+

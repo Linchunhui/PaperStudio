@@ -1,4 +1,4 @@
-"""Persistent local-single-user projects, immutable PDFs, and anchored notes."""
+"""Persistent projects, immutable PDFs and permission-scoped reading notes."""
 from __future__ import annotations
 
 import hashlib
@@ -99,43 +99,97 @@ def init_db() -> None:
     # Separate commit: translation tables reference the already-created library.
     from . import translations
     translations.init_db()
+    from . import auth
+    auth.init_auth()
 
 
-def get_project(project_id: str) -> dict:
+def current_user_id() -> str:
+    from . import auth
+    return auth.current_user_id()
+
+
+def resolve_project_id(project_id: str) -> str:
+    if project_id == "inbox" and current_user_id() != "local":
+        from . import auth
+        return auth.current_user()["inbox_id"]
+    return project_id
+
+
+def _project_role(connection, project: dict, user_id: str) -> str | None:
+    if project["owner_id"] == user_id:
+        return "owner"
+    roles = [row["role"] for row in connection.execute(
+        "SELECT gm.role FROM project_shares ps JOIN group_members gm ON gm.group_id=ps.group_id WHERE ps.project_id=? AND gm.user_id=?",
+        (project["id"], user_id),
+    )]
+    return next((role for role in ("admin", "editor", "viewer") if role in roles), None)
+
+
+def visible_project_ids(*, write=False) -> list[str]:
+    user_id = current_user_id()
     with db() as connection:
-        row = connection.execute("SELECT * FROM projects WHERE id=? AND owner_id=?", (project_id, OWNER_ID)).fetchone()
-    if not row:
+        rows = connection.execute("SELECT DISTINCT p.* FROM projects p LEFT JOIN project_shares ps ON ps.project_id=p.id LEFT JOIN group_members gm ON gm.group_id=ps.group_id WHERE p.owner_id=? OR gm.user_id=?", (user_id,user_id)).fetchall()
+        return [r["id"] for r in rows if not write or _project_role(connection, dict(r), user_id) != "viewer"]
+
+
+def get_project(project_id: str, *, write=False) -> dict:
+    project_id = resolve_project_id(project_id)
+    with db() as connection:
+        row = connection.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+        role = _project_role(connection, dict(row), current_user_id()) if row else None
+    if not row or not role:
         raise HTTPException(404, "项目不存在")
-    return dict(row)
+    if write and role not in {"owner", "admin", "editor"}:
+        raise HTTPException(403, "当前项目为只读权限")
+    return dict(row) | {"access_role": role, "can_edit": role != "viewer"}
 
 
-def get_paper(paper_id: str) -> dict:
+def get_paper(paper_id: str, *, write=False) -> dict:
+    user_id = current_user_id()
     with db() as connection:
-        row = connection.execute("SELECT * FROM papers WHERE id=? AND owner_id=?", (paper_id, OWNER_ID)).fetchone()
+        row = connection.execute("SELECT * FROM papers WHERE id=?", (paper_id,)).fetchone()
         if not row:
             raise HTTPException(404, "论文不存在")
         result = dict(row)
-        result["memberships"] = [dict(r) for r in connection.execute(
-            "SELECT pp.* FROM project_papers pp JOIN projects p ON pp.project_id=p.id WHERE pp.paper_id=? AND p.owner_id=? ORDER BY pp.updated_at DESC",
-            (paper_id, OWNER_ID),
-        )]
+        memberships = []
+        for membership in connection.execute("SELECT pp.* FROM project_papers pp WHERE pp.paper_id=? ORDER BY pp.updated_at DESC", (paper_id,)):
+            project = connection.execute("SELECT * FROM projects WHERE id=?", (membership["project_id"],)).fetchone()
+            role = _project_role(connection, dict(project), user_id) if project else None
+            if not role:
+                continue
+            item = dict(membership) | {"access_role": role, "can_edit": role != "viewer",
+                                       "project_owner_id": project["owner_id"]}
+            progress = connection.execute("SELECT status,last_page,page_offset,updated_at FROM reading_progress WHERE user_id=? AND paper_id=? AND project_id=?", (user_id,paper_id,project["id"])).fetchone()
+            if progress:
+                item.update(dict(progress))
+            elif project["owner_id"] != user_id:
+                item.update(status="unread",last_page=1,page_offset=0)
+            memberships.append(item)
+        if result["owner_id"] != user_id and not memberships:
+            raise HTTPException(404, "论文不存在")
+        # Copying a read-only shared paper into one's own project must not grant
+        # permission to replace the original owner's globally shared PDF asset.
+        result["can_edit"] = result["owner_id"] == user_id or any(
+            m["can_edit"] and m["project_owner_id"] == result["owner_id"] for m in memberships)
+        if write and not result["can_edit"]:
+            raise HTTPException(403, "当前论文为只读权限")
+        result["memberships"] = memberships
         result["has_translation"] = bool(result["translated_filename"] or result["active_translation_run_id"])
     return result
 
 
-def require_membership(paper_id: str, project_id: str) -> dict:
-    get_paper(paper_id)
-    get_project(project_id)
-    with db() as connection:
-        row = connection.execute("SELECT * FROM project_papers WHERE paper_id=? AND project_id=?", (paper_id, project_id)).fetchone()
-    if not row:
+def require_membership(paper_id: str, project_id: str, *, write=False) -> dict:
+    project = get_project(project_id, write=write)
+    paper = get_paper(paper_id)
+    membership = next((m for m in paper["memberships"] if m["project_id"] == project["id"]), None)
+    if not membership:
         raise HTTPException(409, "请先将这篇论文加入所选项目")
-    return dict(row)
+    return membership
 
 
 def link_paper(paper_id: str, project_id: str) -> dict:
     get_paper(paper_id)
-    get_project(project_id)
+    project_id = get_project(project_id, write=True)["id"]
     with db() as connection:
         connection.execute("INSERT OR IGNORE INTO project_papers(paper_id,project_id,status,last_page,updated_at) VALUES(?,?,'unread',1,?)", (paper_id, project_id, now()))
     return require_membership(paper_id, project_id)
@@ -195,7 +249,7 @@ def _store_pdf(content: bytes, digest: str) -> str:
 
 
 def add_paper(content: bytes, project_id: str, title: str = "", filename: str = "paper.pdf") -> dict:
-    get_project(project_id)
+    project_id = get_project(project_id, write=True)["id"]
     info = pdf.inspect_pdf(content)
     digest = hashlib.sha256(content).hexdigest()
     paper_id = uid()
@@ -204,8 +258,8 @@ def add_paper(content: bytes, project_id: str, title: str = "", filename: str = 
         raise HTTPException(422, "论文标题不能超过 500 字符")
     stored_filename = _store_pdf(content, digest)
     with db() as connection:
-        connection.execute("INSERT OR IGNORE INTO papers(id,title,filename,sha256,page_count,created_at,owner_id) VALUES(?,?,?,?,?,?,?)", (paper_id, clean_title, stored_filename, digest, info["page_count"], now(), OWNER_ID))
-        paper_id = connection.execute("SELECT id FROM papers WHERE owner_id=? AND sha256=?", (OWNER_ID, digest)).fetchone()["id"]
+        connection.execute("INSERT OR IGNORE INTO papers(id,title,filename,sha256,page_count,created_at,owner_id) VALUES(?,?,?,?,?,?,?)", (paper_id, clean_title, stored_filename, digest, info["page_count"], now(), current_user_id()))
+        paper_id = connection.execute("SELECT id FROM papers WHERE owner_id=? AND sha256=?", (current_user_id(), digest)).fetchone()["id"]
         connection.execute("INSERT OR IGNORE INTO project_papers(paper_id,project_id,status,last_page,updated_at) VALUES(?,?,'unread',1,?)", (paper_id, project_id, now()))
     return get_paper(paper_id)
 
@@ -223,7 +277,7 @@ def attach_translation(
     their enqueue-time hash (including None), so a newer manual upload or another
     completed translation cannot be overwritten by a stale job.
     """
-    paper = get_paper(paper_id)
+    paper = get_paper(paper_id, write=True)
     info = pdf.inspect_pdf(pdf_bytes)
     if info["page_count"] != paper["page_count"]:
         raise HTTPException(422, "首版按原文页码对应译文，请上传与原文页数相同的单语译文 PDF（不是左右合并版）")
@@ -232,8 +286,8 @@ def attach_translation(
     with db() as connection:
         connection.execute("BEGIN IMMEDIATE")
         current = connection.execute(
-            "SELECT translated_sha256,active_translation_run_id FROM papers WHERE id=? AND owner_id=?",
-            (paper_id, OWNER_ID),
+            "SELECT translated_sha256,active_translation_run_id FROM papers WHERE id=?",
+            (paper_id,),
         ).fetchone()
         if not current:
             raise HTTPException(404, "论文不存在")
@@ -245,15 +299,16 @@ def attach_translation(
             run_id = current["active_translation_run_id"]
             connection.execute("UPDATE translation_runs SET status='superseded',updated_at=? WHERE id=?", (now(), run_id))
             connection.execute("UPDATE translation_pages SET status='cancelled',error='已由手动导入的译文替代',updated_at=? WHERE run_id=? AND status!='ready'", (now(), run_id))
-        connection.execute("UPDATE papers SET translated_filename=?,translated_sha256=?,translated_page_count=?,active_translation_run_id=NULL WHERE id=? AND owner_id=?", (stored, digest, info["page_count"], paper_id, OWNER_ID))
+        connection.execute("UPDATE papers SET translated_filename=?,translated_sha256=?,translated_page_count=?,active_translation_run_id=NULL WHERE id=?", (stored, digest, info["page_count"], paper_id))
     return get_paper(paper_id)
 
 
 def annotation_list(paper_id: str, project_id: str) -> list[dict]:
+    project_id = get_project(project_id)["id"]
     require_membership(paper_id, project_id)
     paper = get_paper(paper_id)
     with db() as connection:
-        rows = connection.execute("SELECT * FROM annotations WHERE paper_id=? AND project_id=? ORDER BY page,created_at,id", (paper_id, project_id)).fetchall()
+        rows = connection.execute("SELECT * FROM annotations WHERE paper_id=? AND project_id=? AND (owner_id=? OR visibility='shared') ORDER BY page,created_at,id", (paper_id, project_id, current_user_id())).fetchall()
         active_run = paper.get("active_translation_run_id")
         page_hashes = {row["page_no"]: row["asset_sha"] for row in connection.execute(
             "SELECT page_no,asset_sha FROM translation_pages WHERE run_id=? AND status='ready'", (active_run,)
@@ -271,15 +326,35 @@ def annotation_list(paper_id: str, project_id: str) -> list[dict]:
             )
         else:
             entry["is_current"] = not entry.get("translation_run_id") and entry["source_sha"] == paper["translated_sha256"]
-        result.append(entry)
+        result.append(decorate_annotation(entry))
     return result
 
 
-def get_annotation(annotation_id: str) -> dict:
+def decorate_annotation(result: dict) -> dict:
+    result = dict(result)
     with db() as connection:
-        row = connection.execute("SELECT a.* FROM annotations a JOIN papers p ON a.paper_id=p.id JOIN projects j ON a.project_id=j.id WHERE a.id=? AND p.owner_id=? AND j.owner_id=?", (annotation_id, OWNER_ID, OWNER_ID)).fetchone()
-    if not row:
+        author = connection.execute("SELECT display_name FROM users WHERE id=?", (result["owner_id"],)).fetchone()
+    result["author"] = author["display_name"] if author else "本地所有者"
+    result["can_edit"] = result["owner_id"] == current_user_id()
+    if not result["can_edit"] and result["visibility"] == "shared":
+        result["can_edit"] = get_project(result["project_id"])["can_edit"]
+    return result
+
+
+def get_annotation(annotation_id: str, *, write=False) -> dict:
+    with db() as connection:
+        row = connection.execute("SELECT * FROM annotations WHERE id=?", (annotation_id,)).fetchone()
+    if not row or (row["visibility"] != "shared" and row["owner_id"] != current_user_id()):
         raise HTTPException(404, "笔记不存在")
-    result = dict(row)
+    require_membership(row["paper_id"], row["project_id"])
+    result = decorate_annotation(dict(row))
+    if write and not result["can_edit"]:
+        raise HTTPException(403, "当前笔记为只读权限")
     result["rects"] = json.loads(result["rects"])
     return result
+
+
+def record_annotation_version(connection, annotation: dict, action: str) -> None:
+    entry = dict(annotation)
+    connection.execute("INSERT INTO annotation_versions(id,annotation_id,version,editor_id,visibility,content_json,action,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (uid(), entry["id"], entry["version"], current_user_id(), entry["visibility"], json.dumps(entry,ensure_ascii=False),action,now()))

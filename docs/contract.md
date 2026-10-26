@@ -1,160 +1,127 @@
 # API 与数据约定
 
-应用为本地单用户服务：FastAPI、SQLite、PyMuPDF 与原生 JavaScript。默认监听 localhost；当前没有账户登录与多用户权限层。
+当前实现为 FastAPI + SQLite + 原生 JavaScript，面向单服务实例。每个实例拥有导入 worker、文字解读/全文翻译/段落翻译三个独立 worker，以及研究问答 worker。数据库队列持久化，进程内调度不支持通过增加 Uvicorn worker 横向扩容。
+
+## 身份与访问范围
+
+`/api` 默认需要会话。公开接口仅包括健康检查、当前会话状态、首次初始化、登录和邀请注册；匿名请求不能以历史 `local` 身份读取业务数据。
+
+登录使用 HttpOnly、SameSite=Lax cookie；HTTPS 或 `PAPERSTUDIO_COOKIE_SECURE=1` 时使用 Secure。写请求需要当前会话的 `X-CSRF-Token`，并检查 Origin/跨站请求。会话保存在数据库中，cookie 中是随机令牌。首次管理员通过服务端初始化口令创建，旧 `local` 数据随首次管理员迁移。
+
+站点角色 `admin/user` 决定服务配置、Skill 和目录维护接口权限；小组角色 `admin/editor/viewer` 决定共享项目的操作范围。站点管理员身份不用于绕过他人私有项目和私有笔记的正常访问检查。
+
+共享精确到所选项目，不递归共享子项目。用户的阅读状态独立保存。个人笔记默认 private；shared 笔记对当前项目成员可见，编辑权限由作者/项目角色决定，只有作者可改变笔记可见范围。版本接口过滤调用者不可见的历史 private 版本。
+
+用户把一个可访问论文主动加入个人项目后，其个人关联可以保留。原组成员关系或项目共享撤回后，原组项目的笔记、解读和上下文权限即时撤回；个人关联不授予替换原论文公共译文的权限。
 
 ## 数据关系
 
-- `projects` 以 `parent_id` 形成目录树，移动节点拒绝自身和后代循环。
-- `papers` 按原文 PDF 的 SHA256 去重，文件按内容寻址且不可变。
-- `project_papers` 把同一论文关联到不同项目，分别保存阅读状态、页码与页内偏移 `page_offset`（0–1）。
-- `annotations` 绑定论文、项目、原文/译文、页码、PDF SHA256 和规范化选区矩形。逐页译文还绑定 `translation_run_id`，后续页面生成不改变已有页的批注身份。替换译文保留旧批注，但不把旧高亮显示在新版本上。
-- `jobs` 保存任务输入、笔记与 Skill 快照；只有成功且未取消的结果才提交。
-- `imports/import_steps` 保存导入处理计划和依赖，`paper_sources` 保存来源与下载版本，`parse_artifacts` 按原文哈希缓存全文文字。
-- `translation_runs/translation_pages` 保存逐页译文。单页 PDF 发布后不可变，整本合并仅作为下载产物。
-- `discovery_cache` 保存真实来源的最后成功响应；来源失效时返回显式旧缓存状态。
+| 对象 | 身份与约束 |
+| --- | --- |
+| `users/auth_sessions` | 独立账号、密码哈希、会话及 CSRF 随机令牌 |
+| `groups/group_members/group_invitations` | 小组成员角色，一次使用且有到期时间的邀请 |
+| `projects/project_shares` | 项目目录树、显式共享对象；移动拒绝环路 |
+| `papers/project_papers` | 原 PDF 按 SHA256 内容寻址；项目关联独立于目录元数据 |
+| `reading_progress` | 按用户、项目、论文保存状态、页码和页内偏移 |
+| `annotations/annotation_versions` | 作者、可见范围、版本、原文摘录、页码和规范化矩形 |
+| `imports/import_steps/paper_sources` | 导入计划、步骤依赖、来源和实际下载版本 |
+| `parse_artifacts` 及 `cache/parsed` | 与原文 SHA256 和解析器版本绑定的解析缓存 |
+| `jobs` | 原有解读/翻译任务，输入与模型/提示词快照、作者及共享范围 |
+| `translation_runs/translation_pages` | 逐页译文、翻译批次及不可变页产物 |
+| `research_jobs` 及证据快照 | 问答、图表公式、脉络、知识结构；引用随来源版本和权限校验 |
+| `catalog_*` | 论文目录、来源观测、会议/方向/单位维度和导入历史 |
+
+原文批注绑定 `paper_id/project_id/source_sha/page/rects`。译文另绑定 `translation_run_id` 与对应译文页身份。译文替换保留历史批注，但不允许把旧高亮移到新版本同坐标。
+
+正文下载、缓存、生成任务和读取结果都检查调用者权限。后台 worker 使用任务记录的发起人身份，不依赖一个可变全局用户。缓存解析可以复用同字节 PDF，但个人笔记和生成材料不因缓存共享而扩大访问范围。
 
 ## HTTP 接口
 
-所有下表路径带 `/api` 前缀。交互式 API 说明见运行服务的 `/docs`。
+下表路径统一带 `/api` 前缀；完整参数以运行服务的 OpenAPI `/docs` 为准。普通业务调用须先取得登录 cookie，写操作携带会话响应中的 `csrf_token`。
 
 | 路径 | 用途 |
 | --- | --- |
-| `GET/POST /projects` | 列出或创建项目 |
-| `PATCH /projects/{id}` | 重命名或移动项目 |
-| `GET/POST /papers` | 搜索已入库论文或上传 PDF |
-| `GET /papers/{id}` | 论文信息与项目关联 |
-| `POST /papers/{id}/projects` | 关联已有论文到项目 |
-| `PATCH /papers/{id}/reading` | 更新当前项目的阅读状态与位置 |
-| `POST /papers/{id}/translation` | 导入页数一致的单语译文 PDF |
-| `GET /papers/{id}/file` | 原始 PDF 字节；`side=original/translation` |
-| `GET /papers/{id}/page-manifest` | 全文页面尺寸，用于连续滚动占位 |
-| `GET /papers/{id}/translation-pages` | 翻译批次与逐页状态；未完成时也可读取就绪页 |
-| `GET /papers/{id}/pages/{n}/reading` | 提取重排文字块，可按 `project_id` 附当前版本段落翻译任务 |
-| `POST /papers/{id}/reading/translate` | 显式提交一个原文段落的翻译，返回普通后台任务 |
-| `GET /papers/{id}/pages/{n}/alignment` | 当前页的原文/译文段落对应、归一化矩形和版本身份 |
-| `GET /papers/{id}/pages/{n}` | 页面尺寸、文字坐标、版本与 SVG URL |
-| `GET /papers/{id}/pages/{n}.svg` | PDF 页面直接生成的 SVG |
-| `GET/POST /papers/{id}/annotations` | 当前项目批注列表或创建批注 |
-| `PATCH/DELETE /annotations/{id}` | 编辑或删除批注 |
-| `GET /papers/{id}/notes.md` | 导出当前项目的 Markdown 笔记 |
-| `GET /capabilities` | 模型与翻译能力是否已配置 |
-| `GET /skills` | 项目角色与输出模式 |
-| `GET/POST /jobs` | 查询任务或按需入队 |
-| `GET /jobs/{id}` | 任务状态与结果 |
-| `POST /jobs/{id}/cancel` | 取消任务，拒绝提交迟到结果 |
-| `POST /jobs/{id}/retry` | 显式重试失败或中断任务 |
-| `POST /imports` | 从 arXiv/PDF 链接或已有 `paper_id` 创建处理计划 |
-| `POST /imports/file` | 上传 PDF，同时选择项目与处理选项 |
-| `GET /imports` | 查询导入进度，可按项目或论文过滤 |
-| `GET /imports/{id}` | 导入计划、步骤依赖、错误与任务 ID |
-| `POST /imports/{id}/cancel` | 取消未完成步骤，保留已入库原文 |
-| `POST /imports/{id}/retry` | 重试受阻或失败步骤，保留成功产物 |
-| `GET /papers/{id}/parsed` | 已缓存的全文文字、页码与覆盖信息 |
-| `GET /discovery/config` | 搜索 provider 是否配置及来源适配方式 |
-| `GET /discovery/search` | `q`、`scope=web/arxiv/hf`、`page`；不同搜索范围明确分离 |
-| `GET /discovery/feed` | HF、量子位、机器之心的公开内容、来源状态与推荐理由 |
-| `GET /catalog` | 论文索引搜索、年份/来源/机构筛选、排序和分页 |
-| `GET /catalog/stats` | 实际收录量、覆盖范围、缺失信息与导入状态 |
-| `POST /catalog/import` | 上传 JSON/CSV 索引，校验后合并，不下载 PDF |
-| `POST /catalog/refresh-hf` | 按指定周显式更新 HF 榜单快照 |
-| `GET /sources` | 144 条来源登记与发现渠道 |
-| `GET /health` | 服务健康状态 |
+| `GET /health` | 进程健康状态，不披露业务材料 |
+| `GET /auth/session` | 当前用户、初始化状态、CSRF token、必要能力布尔值 |
+| `POST /auth/setup` | `username/password/display_name/setup_token`，仅首次管理员 |
+| `POST /auth/login`、`POST /auth/logout` | 会话登录/退出 |
+| `POST /auth/register` | `username/password/display_name/invite_token`，邀请注册 |
+| `GET/POST /groups`、`GET /groups/{id}` | 小组列表、创建和成员详情 |
+| `POST /groups/{id}/invitations` | 小组管理员发放邀请，`role`、`expires_days` |
+| `POST /groups/join` | 已登录账号使用 `{token}` 加入小组 |
+| `PATCH/DELETE /groups/{id}/members/{user_id}` | 小组管理员调整角色或移除成员 |
+| `GET/POST /projects/{id}/shares` | 查询/添加显式共享对象；新增 `{group_id}` |
+| `DELETE /projects/{id}/shares/{group_id}` | 撤回共享 |
+| `GET/POST /projects`、`PATCH /projects/{id}` | 可见项目、创建、重命名和移动 |
+| `GET/POST /papers`、`GET /papers/{id}` | 可见已入库论文、上传和详情 |
+| `POST /papers/{id}/projects` | 关联已有可访问论文到项目 |
+| `PATCH /papers/{id}/reading` | 当前用户的阅读状态与位置 |
+| `POST /papers/{id}/translation` | 导入页数一致的单语译文，须资源编辑权限 |
+| `GET /papers/{id}/file` | `side=original/translation`，保留原文件身份 |
+| `GET /papers/{id}/page-manifest` | 全文页面尺寸，用于长文档连续占位 |
+| `GET /papers/{id}/translation-pages` | 翻译批次、逐页状态与产物身份 |
+| `GET /papers/{id}/pages/{n}`、`.../{n}.svg` | 页面文字坐标与矢量展示 |
+| `GET /papers/{id}/pages/{n}/reading` | 原文段落、可复用段落译文及已有页级译文 |
+| `GET /papers/{id}/pages/{n}/alignment` | 经过唯一定位校验的原文/译文段落对应 |
+| `POST /papers/{id}/reading/translate` | 显式提交指定原文段落的翻译 |
+| `GET/POST /papers/{id}/annotations` | 按项目和可见范围读写笔记 |
+| `PATCH/DELETE /annotations/{id}` | 修改/删除；更新支持 `expected_version` |
+| `GET /annotations/{id}/versions` | 当前调用者可见的修改记录 |
+| `GET /papers/{id}/notes.md` | 导出该项目中自己可见的笔记 |
+| `GET/POST /jobs`、`GET /jobs/{id}` | 解读、总结和翻译任务 |
+| `POST /jobs/{id}/cancel`、`.../retry` | 发起者取消/重试 |
+| `PATCH /jobs/{id}/visibility` | 已完成成果的 private/shared 可见范围 |
+| `GET/POST /imports`、`GET /imports/{id}` | 持久导入计划 |
+| `POST /imports/{id}/cancel`、`.../retry` | 取消或重试失败步骤 |
+| `GET /catalog`、`GET /catalog/stats` | 目录搜索、筛选和统计 |
+| `POST /catalog/import`、`POST /catalog/refresh-hf` | 仅站点管理员更新目录 |
+| `GET /skills`、`/capabilities`、`/sources`、`/discovery/config` | 仅站点管理员读取配置详情 |
+| `GET /discovery/search`、`/discovery/feed` | 搜索与推荐，保留来源状态和方向标签 |
 
-批注矩形使用 `x,y,width,height`，相对于对应页面宽高归一化到 0–1。页码从 1 开始，原文与译文分别保存自己的版本哈希。前端透明文字层只用于选区，视觉页面来自原 PDF 的 SVG。
+## 研究问答与引用
 
-## 异步任务
-
-支持 `guide`、`brief`、`selection-summary`、`notes-summary`、`translate`、`paragraph-translate`。`brief` 支持 `abstract/cards/summary/all`。任务状态为 `queued/running/succeeded/failed/cancelled/interrupted`。
-
-全文导读/摘要提取全部页面文字并保留页码；没有图像视觉核验。超出输入限制时明确失败，不静默截断。选区摘要仅使用对应批注；读后总结仅使用该项目笔记快照。用户笔记与 PDF 内容被视为证据数据，不作为覆盖角色规则的指令。
-
-服务重启将正在执行的任务标为中断，等待用户重试；排队任务保留。当前只有单进程 worker，SQLite 队列不声称具备分布式租约或外部服务调用的无重复恢复。
-
-## 导入处理计划
+只有显式 `POST` 才产生研究工作；读取历史、展开已有引用和浏览知识页面不自动重新调用模型。
 
 ```json
 {
-  "url": "https://arxiv.org/abs/2501.12948v2",
-  "project_id": "inbox",
-  "processing": {
-    "parse": true,
-    "translate": true,
-    "guide": false,
-    "brief_modes": ["abstract", "cards", "summary"]
+  "project_id": "当前可访问项目",
+  "paper_id": "单篇论文ID；项目问答省略此字段",
+  "kind": "qa",
+  "question": "这项方法在哪些实验中体现优势？",
+  "selection": {
+    "source_sha": "原文PDF的64位SHA256",
+    "page": 3,
+    "block_id": "可选：reading接口返回的块ID",
+    "quote": "可选：原文摘录",
+    "rects": [{"x": 0.1, "y": 0.2, "width": 0.6, "height": 0.3}]
   }
 }
 ```
 
-`url` 和 `paper_id` 二选一。文件入口使用 multipart 的 `file/project_id/title/processing`，其中 `processing` 是 JSON 字符串。成功受理返回 HTTP 202。全文导读与粗读自动依赖解析；翻译只依赖原 PDF。下载与解析由独立 worker 调度，不等待模型任务完成。文本任务先入模型队列，翻译排在同一处理计划的文本任务之后。
+请求发送至 `POST /research/jobs`；无选区问答省略 `selection`。`kind` 为 `qa/explain/summary/figure/formula/lineage/knowledge`。返回 HTTP 202 和持久任务；通过 `GET /research/jobs/{id}` 轮询。任务列表支持项目/论文范围；取消和共享接口分别为 `POST .../{id}/cancel` 与 `PATCH .../{id}/visibility`。
 
-下载成功立即返回可读 `paper_id`。无模型配置时相应步骤为 `blocked`；原文仍可阅读。取消保留成功步骤，重试不会重复下载已保存的 PDF。用户需要新的模型或输入快照时，应重新提交处理计划。
+矩形坐标相对于实际原文页归一化，要求在页内且为有限数。图表/公式图像由后端从原 PDF 裁剪；不接受客户端把任意截图冒充该论文证据。译文选区不能直接冒充原文引用。
 
-## 逐页译文与版本
+结果包括 `claims[].text/citations`、`unanswered`、`knowledge`、`lineage` 和 `coverage`。引用包含来源类型、论文/项目身份、原文版本、页码、块 ID、原句和坐标；图像证据提供权限受控的裁图入口。原句必须在服务端保存的来源块中匹配，只规范化 PDF 空白，不容许模型补词或更换大小写。支持关系另经独立检查，未通过的陈述/引用不作为有证据结论展示。
 
-`translation-pages` 的 `mode` 为 `none/manual/progressive`；逐页状态为 `queued/running/ready/failed/cancelled`。页面成为 `ready` 后可通过原有页面接口取得 SVG 和透明文字层。未就绪页返回 HTTP 409。全部完成之前，整本译文下载返回 409，而就绪页一直可读。
+项目材料扫描和模型实际看到的检索片段是不同统计，分别在覆盖信息中记录；缺全文、无文字页和预算限制不能被写成已经完整阅读。笔记与生成解读只能支持关于这些材料自身的说法，不能替代论文实验原文。每次读取/共享结果重新检查来源可见性和版本，撤回共享后旧结果不能绕过权限。
 
-译文批注需携带页面元数据中的 `source_sha` 和 `translation_run_id`。人工上传译文后，旧后台批次失活；服务会拒绝基于旧页面新建批注，历史笔记保留。失败或中断任务重试沿用原批次与已成功页面，只处理其余页面。轮询清单只更新对应页，不重新载入整本文档。
+研究脉络来自本文真实参考条目及引述。`POST /research/jobs/{id}/references/{index}/expand` 只接受已有、服务端核验过的脉络条目，按需取得前序论文；`POST /research/reference-assets/{id}/import` 才主动加入项目。目录缺少可解析全文入口时返回明确缺口，不把会议日程册下载成论文。
 
-### 段落对应
+`GET /research/knowledge?project_id=...&category=...&q=...&label=...` 检索已生成且当前可见的知识项，不预生成全项目论文。分类为研究问题、方法组件、实验、数据集、局限，每项保留引用和关联标签。
 
-`GET /papers/{id}/pages/{n}/alignment` 返回：
+## 解析、译文和显示
 
-```json
-{
-  "page": 1,
-  "original_sha": "原文整本 PDF 的 SHA256",
-  "translation_sha": "当前页译文 PDF 的 SHA256",
-  "translation_run_id": "当前翻译批次",
-  "status": "ready",
-  "paragraphs": [{
-    "id": "稳定的段落对应 ID",
-    "original": {"text": "原文段落", "rects": [{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.04}]},
-    "translation": {"text": "译文段落", "rects": [{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.04}]},
-    "method": "babeldoc-tracking"
-  }]
-}
-```
+优先复用与原文哈希绑定的解析与译文；缺结果时执行 BabelDOC 解析。解析器中间格式不可用时回退 PyMuPDF 并记录原因。文本段落翻译与 PDF 版式翻译保存不同产物，不能互相冒充；具体参数见 [模型与解析说明](model-and-parsing.md)。
 
-这是阅读辅助映射，不是个人批注。`ready/partial` 含可用段落；`pending` 表示译文尚未完成；`unavailable` 表示没有可靠映射。没有就绪译文时 `translation_sha` 为 null；已有人工译文时为整本译文哈希、`translation_run_id` 为 null，当前返回 `no_tracking`。失效页码或论文返回 404。
+`reading` 中的 `existing_translation` 返回 `text/page/source_sha/original_sha/translation_run_id/alignment/status`。人工旧译文通常只有 `alignment=page-only`；阅读器核验原文/译文版本后按页展示，不生成假的段落配对。没有可靠坐标的引用只定位到页，过期版本不跳到新版同坐标。
 
-映射与就绪 PDF 在同一事务中发布，并绑定原文哈希、翻译批次、原页码和该页译文哈希。重试保留成功页映射；人工替换后只返回新版本的信息。前端按这些身份核验响应，避免迟到请求把旧段落套入新页面。
+BabelDOC 新译文使用无宣传水印输出；历史展示只过滤完整匹配宣传文案，正常正文对 BabelDOC 的讨论保持不变。原始上传字节、SHA256 和已有批注身份不覆盖。
 
-BabelDOC 以显式 `--working-dir` 输出实际翻译记录，不开启会修改可见 PDF 的 `--debug`。仅两侧实际文本均可唯一定位的记录会转成归一化矩形；没有几何位置猜配或额外模型调用。原始追踪日志只存在于单页临时目录，完成后清理；数据库只保存 `alignment_json` 精简结果。追踪格式失败不会使有效 PDF 翻译失败。
+## 目录口径与升级
 
-旧版已完成任务没有追踪信息，升级后重新提交会使用新的翻译管线版本，不复用旧完成任务。旧失败任务重试仍保留其已成功页；如需为旧成功页补对应信息，应发起新的逐页翻译。
+`catalog` 与已下载 `papers` 独立。完整快照为 28,919 条保守独立条目、32,162 条来源明细；维度筛选不会删除记录。`GET /catalog` 支持 `q/year/source/institution/conference/conference_year/presentation/verification_status/direction/sort/page/page_size`。`year` 是发表年；会议年和 HF 周次独立。
 
-`POST /jobs` 的 `force: true` 仅适用于 `kind: "translate"`：显式绕过已成功任务的复用，生成新批次；已有相同配置的排队/执行任务仍会复用，以避免重复点击触发重复模型调用。默认 `force: false` 保持原有幂等行为。
+目录按精确原始 arXiv ID 或规范化完整标题关联；共同机构目录和会议日程网址不充当论文身份。后续补充的 HF 元数据不能擅自消除有争议的改名条目。未知作者、单位、Star 等保留缺值；指标各有观察日期。
 
-## 发现结果
-
-搜索与推荐返回 `items` 以及每个来源的 `statuses`。条目包含 `kind=paper/article`、原始 URL、发布时间（缺失则为空）、发现来源、摘要片段和推荐理由。来源状态包括 `ok/cached/stale/error/unconfigured`；`fetched_at` 是抓取时间，不能替代文章发布时间。全网服务未配置时搜索接口返回 409；单个推荐来源失败不会清空其他来源。
-
-首版媒体入口为公开网站内容：量子位 RSS，机器之心经搜索 provider 的站内查询。没有声称已接入微信公众号、X 或完整历史消息流。配置搜索 provider 可查 README；本机 PDF、笔记与模型密钥不会作为推荐查询自动发送。
-
-
-## 重排阅读与段落翻译
-
-阅读器的展示模式（原 PDF / 重排）与翻译开关独立，默认原 PDF 且关闭译文。读取重排文本、切换展示、打开已有译文都只读取数据。翻译必须由用户明确发起。
-
-`GET /papers/{id}/pages/{n}/reading?project_id=...` 返回 `paper_id/page/source_sha/extraction_version/blocks/has_text/warnings`。每块含稳定 `id`、`type=heading|paragraph`、`text`、原 PDF 的规范化 `rects` 以及可选 `translation` 任务。块 ID 绑定原文内容哈希、页码、提取版本、文本和坐标，不通过段落序号跨版本猜配。接口不保证图表、公式或异常多栏结构恢复为 Markdown。
-
-```json
-{
-  "project_id": "inbox",
-  "page": 1,
-  "block_id": "从 reading 响应取得的块 ID",
-  "source_sha": "从 reading 响应取得的原 PDF SHA256"
-}
-```
-
-上述请求发送至 `POST /papers/{id}/reading/translate`。服务端重新解析并验证块，不接受客户端自行替换的待翻译文字。响应为 `kind=paragraph-translate` 的普通任务，带 `page/block_id/source_sha`；完成后的 `result_markdown` 仅含中文译文。任务固定实际段落提示词版本及模型配置，同一项目的相同输入复用排队或成功结果；模型配置变化时不混用旧结果。使用现有 `/jobs/{id}`、取消及重试接口。
-
-文本段落翻译不需要 BabelDOC，也不产生译文 PDF。PDF 版式翻译与文本段落翻译保存各自的结果，二者不会互相冒充。重排模式每段完成后独立显示，不等待本页或全文全部完成。
-
-## 可更新论文索引
-
-`catalog` 保存论文元数据与来源证据，与已下载的 `papers` 独立。查询索引不下载 PDF、不调用模型；点击加入项目后沿用现有链接导入及处理选项。
-
-`GET /catalog` 支持 `q/year/source/institution/sort/page/page_size`。`year` 指论文发表年份，HF 上榜年份与周次另存于来源记录；排序的点赞与 Star 为采集快照，缺失值为 null，不填成 0。合并时保留不同来源和榜单周次；机构归属依赖导入材料，待核标记保留。
-
-JSON 格式可为论文数组，或 `{"dataset": {...}, "papers": [...]}`；CSV 列映射及更新命令见 README。导入先校验，再在事务中合并。单份导入失败不破坏已有索引，失败原因可在统计页查看。HF 指定周更新来自官方接口，记录抓取时间和查询周键；它是本次查询得到的历史周页面快照，不声称还原当周冻结的热度。
+manifest 中逐片校验字节长度和 SHA256。旧种子迁移先归档其完整对象，只移出可识别的旧转换器来源，保留手工来源；不修改个人论文、文件、项目或笔记。启动重复载入使用指纹避免新增重复来源。保留旧目录归档不等于自动完成整库回滚，部署回滚仍需代码与完整数据备份配对。

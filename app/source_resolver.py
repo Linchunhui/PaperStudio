@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
 
 from fastapi import HTTPException
 
@@ -30,6 +30,27 @@ def resolve_source(value: str) -> dict:
         raise HTTPException(422, "DOI 全文解析尚未接入；请提供公开 PDF 或 arXiv 链接，不能把出版社网页作为 PDF 导入。")
     if port not in {None, 80, 443}:
         raise HTTPException(422, "论文下载仅支持公网 HTTP/HTTPS 标准端口")
+    if host in {"huggingface.co", "www.huggingface.co"} and parts.path.startswith('/papers/'):
+        return resolve_source('https://arxiv.org/abs/' + parts.path.removeprefix('/papers/').strip('/'))
+    if host in {"openreview.net", "www.openreview.net"} and parts.path in {'/forum', '/pdf'}:
+        identifier = parse_qs(parts.query).get('id', [''])[0]
+        if not re.fullmatch(r'[A-Za-z0-9_-]{2,100}', identifier):
+            raise HTTPException(422, 'OpenReview 链接缺少有效论文 ID')
+        return {'kind': 'openreview', 'canonical_url': f'https://openreview.net/forum?id={identifier}',
+                'download_url': f'https://openreview.net/pdf?id={identifier}',
+                'arxiv_id': None, 'version': None, 'version_policy': 'download-sha-snapshot'}
+    if host == 'aclanthology.org':
+        identifier = parts.path.strip('/').removesuffix('.pdf')
+        if re.fullmatch(r'\d{4}\.[A-Za-z0-9-]+\.[1-9]\d*', identifier):
+            return {'kind': 'acl', 'canonical_url': f'https://aclanthology.org/{identifier}/',
+                    'download_url': f'https://aclanthology.org/{identifier}.pdf',
+                    'arxiv_id': None, 'version': None, 'version_policy': 'download-sha-snapshot'}
+        raise HTTPException(422, '请提供 ACL 单篇论文链接，会议目录不能作为论文导入')
+    if host in {'openaccess.thecvf.com', 'www.openaccess.thecvf.com'} and '/html/' in parts.path and parts.path.endswith('_paper.html'):
+        pdf_path = parts.path.replace('/html/', '/papers/').removesuffix('.html') + '.pdf'
+        return {'kind': 'cvf', 'canonical_url': f'https://openaccess.thecvf.com{parts.path}',
+                'download_url': f'https://openaccess.thecvf.com{pdf_path}',
+                'arxiv_id': None, 'version': None, 'version_policy': 'download-sha-snapshot'}
     if host in {"arxiv.org", "www.arxiv.org", "export.arxiv.org"}:
         path = unquote(parts.path)
         if not path.startswith(("/abs/", "/pdf/")):
@@ -50,3 +71,4 @@ def resolve_source(value: str) -> dict:
     normalized = urlunsplit((parts.scheme.lower(), netloc, path, parts.query, ""))
     return {"kind": "pdf-url", "canonical_url": normalized, "download_url": normalized,
             "arxiv_id": None, "version": None, "version_policy": "download-sha-snapshot"}
+

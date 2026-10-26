@@ -7,9 +7,9 @@ const source = fs.readFileSync(new URL('../web/app.js', import.meta.url), 'utf8'
 const elements = new Map();
 const handlers = new Map();
 const lifecycle = new Map();
-let importRows=[],libraryRows=[];
+let importRows=[],libraryRows=[],slowSearchResolve;
 const el = name => {
-  if (!elements.has(name)) elements.set(name, {innerHTML:'', textContent:'', hidden:false, classList:{add(){},remove(){}}, addEventListener(type,fn){handlers.set(type,fn);}});
+  if (!elements.has(name)) elements.set(name, {innerHTML:'', textContent:'', hidden:false, attributes:{},setAttribute(name,value){this.attributes[name]=value;},classList:{add(){},remove(){}}, addEventListener(type,fn){handlers.set(type,fn);}});
   return elements.get(name);
 };
 const requests = [];
@@ -19,6 +19,7 @@ class Fields {
   set(k,v){this.data.set(k,v);}
 }
 const payload = path => {
+  if(path==='/api/auth/session')return {user:{id:'local',username:'reader',display_name:'Reader',role:'admin',is_admin:true,inbox_id:'inbox'},csrf_token:'test-csrf'};
   if(path==='/api/projects')return [{id:'inbox',name:'收件箱',parent_id:null},{id:'child',name:'文档研究',parent_id:'inbox'}];
   if(path==='/api/capabilities')return {ai_configured:false,translation_configured:false};
   if(path==='/api/skills')return [{id:'paper-brief',name:'粗读'}];
@@ -32,6 +33,7 @@ const payload = path => {
 };
 const context=vm.createContext({console,URL,URLSearchParams,Headers,FormData:Fields,location:{pathname:'/',search:''},history:{replaceState(){}},document:{querySelector:el},window:{addEventListener(type,fn){lifecycle.set(type,fn);}},localStorage:{getItem(){return null;},setItem(){}},setTimeout(){return 1;},clearTimeout(){},fetch:async(path,request)=>{
   requests.push({path,request});
+  if(path.startsWith('/api/discovery/search?')&&path.includes('q=slow'))return new Promise(resolve=>{slowSearchResolve=()=>resolve({ok:true,headers:new Headers({'content-type':'application/json'}),json:async()=>({items:[{id:'new',kind:'paper',title:'New search paper',url:'https://arxiv.org/abs/2501.12948',source_id:'arxiv'}],statuses:[]})});});
   const data=request.method==='POST'?{id:'i1',paper_id:'p1',status:'queued'}:payload(path);
   return {ok:true,headers:new Headers({'content-type':'application/json'}),json:async()=>data};
 }});
@@ -44,6 +46,9 @@ const click=async dataset=>{await handlers.get('click')({target:{closest:()=>({d
   assert.match(el('#discovery-results').innerHTML,/&lt;img src=x onerror=alert\(1\)&gt;/,'external markup must be escaped');
   assert.doesNotMatch(el('#discovery-results').innerHTML,/href="javascript:/,'external unsafe scheme must not become a link');
   assert.match(el('#discovery-results').innerHTML,/等待配置/,'unconfigured source must be explicit');
+  assert.match(el('#app').innerHTML,/<details class="discovery-preferences"[^>]*>/);
+  assert.doesNotMatch(el('#app').innerHTML,/<details class="discovery-preferences"[^>]*\bopen\b/);
+  assert.match(el('#discovery-results').innerHTML,/<details class="source-status-disclosure"/);
   assert.match(el('#discovery-results').innerHTML,/Hugging Face · 量子位/,'merged source IDs must be preserved');
   await click({view:'skills'});
   assert.match(el('#app').innerHTML,/searxng/,'service page must match nested web_search config');
@@ -84,5 +89,12 @@ const click=async dataset=>{await handlers.get('click')({target:{closest:()=>({d
   assert.equal(context.processingProgress({kind:'download',progress:{downloaded_bytes:1048576,total_bytes:2097152,source_sha:'secret'}}),'已下载 1.0 / 2.0 MB');
   assert.match(context.processingProgress({kind:'translate',progress:{coverage:{ready_pages:3,total_pages:8,translation_run_id:'secret'}}}),/3 \/ 8 页/);
   assert.doesNotMatch(context.processingProgress({kind:'parse',progress:{text_pages:7,total_pages:8,source_sha:'secret',scope:'internals'}}),/secret|internals/);
+  await click({view:'discover'});await click({action:'show-feed'});
+  const pendingSearch=handlers.get('submit')({preventDefault(){},target:{id:'discovery-search-form',data:{q:'slow',scope:'web'},querySelector:()=>submitButton}});await settle();
+  assert.ok(slowSearchResolve);assert.match(el('#discovery-results').innerHTML,/Paper/);assert.match(el('#discovery-results').innerHTML,/保留上次结果/);
+  assert.equal(el('#discovery-results').attributes['aria-busy'],'true');
+  slowSearchResolve();await pendingSearch;await settle();
+  assert.match(el('#discovery-results').innerHTML,/New search paper/);assert.equal(el('#discovery-results').attributes['aria-busy'],'false');
   console.log('PASS: default discovery, external escaping, source states, provider config, URL import, full processing payload, invalid URL rejection, external search endpoint, safe URLs, readable progress');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
