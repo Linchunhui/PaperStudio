@@ -1,0 +1,881 @@
+{
+  "schema_version": 2,
+  "snapshot": "2026-10-26T14:49:27+08:00",
+  "counts": {
+    "hf_source_rows": 4748,
+    "institution_papers": 6134,
+    "institution_source_rows": 8820,
+    "conference_confirmed_rows": 14570,
+    "conference_pending_rows": 4024,
+    "source_records": 32162,
+    "unique_papers": 28919,
+    "direction_removed": 0,
+    "year_removed": 0
+  },
+  "source_files": [
+    {
+      "dataset": "hf",
+      "filename": "inventory.json",
+      "sha256": "d4e9ed7acf4cd19f63a3f1c62502d81d49be551b6791075dae460893f69bd32a"
+    },
+    {
+      "dataset": "institution",
+      "filename": "inventory.json",
+      "sha256": "58f5e93a4bdada675f1df30d14b7be98a644bb114ed306359e74e2fca3195973"
+    },
+    {
+      "dataset": "conference",
+      "filename": "parsed.json",
+      "sha256": "3a01d6a43d502d3d66c2a3b685338d543758093eb071ef926371d0d3cebeba5e"
+    }
+  ],
+  "coverage": [
+    {
+      "id": "hf-weekly-2025-2026-20261023",
+      "name": "HF周榜 2025-W01—2026-W43",
+      "source_id": "hf",
+      "source_url": "https://huggingface.co/papers",
+      "observed_at": "2026-10-23",
+      "coverage_start": "2025-01-01",
+      "coverage_end": "2026-10-23",
+      "complete": false,
+      "note": "95周共4748条；首周48条，其余各50。上榜年份与发表年份分开，含2024年发表论文；不声称覆盖2026全年。指标为采集时累计值。"
+    },
+    {
+      "id": "institutions-all-20261024",
+      "name": "80家重点机构全量清单及后续来源",
+      "source_id": "institution",
+      "observed_at": "2026-10-24",
+      "coverage_start": "2023-10-21",
+      "coverage_end": "2026-10-21",
+      "complete": false,
+      "note": "6134条原始论文+2686条重合后续来源=8820条来源；不按方向/年份删除。单位为目标机构标签，日期可能为会议/期刊日期。不是机构全部产出的完整统计。"
+    },
+    {
+      "id": "conference-2025-2026-20261026",
+      "name": "2025—2026会议展示清单（含待核验）",
+      "source_id": "conference",
+      "observed_at": "2026-10-26T14:49:27+08:00",
+      "complete": false,
+      "note": "14570确认展示记录+4024待核验候选，21个会议系列。确认沿用用户附件，未再次逐篇核验；常规口头展示、精选展示及奖项保留不同标签；ICRA/IROS含期刊参会报告可能性。会议年份不充作发表日期。"
+    }
+  ],
+  "identity_policy": "Exact normalized full title or original arXiv ID; no fuzzy matching; no shared-source-URL identity; source observations retained.",
+  "known_identity_review": [
+    {
+      "institution_indices": [
+        1196,
+        2896
+      ],
+      "reason": "Different original titles; later HF enrichment points to same ID 2505.19731. Kept separate pending version verification."
+    }
+  ],
+  "quality": {
+    "conference_missing_authors": 815,
+    "pending_without_individual_links": 4024,
+    "directions": "keyword-v1 heuristic-unverified; never used to remove records",
+    "metrics": {
+      "hf_weekly": "2026-10-23",
+      "institutions": "2026-10-24"
+    },
+    "selectivity": "Only explicit source policy is encoded: RSS/IJCAI/IROS regular presentations; awards; pending unverified; others not-established. Original presentation labels are preserved."
+  },
+  "shards": [
+    {
+      "file": "full-catalog-001.json",
+      "bytes": 899313,
+      "papers": 347,
+      "source_records": 380,
+      "sha256": "a52553f6425655c3daf8955b1b4948f83b259da5ee80cd18cf286e4ef0512ddc"
+    },
+    {
+      "file": "full-catalog-002.json",
+      "bytes": 898588,
+      "papers": 336,
+      "source_records": 370,
+      "sha256": "7bcad44274160ec25bf6d6b0b51b82a577cae01beea1b272e9481992acebd7b5"
+    },
+    {
+      "file": "full-catalog-003.json",
+      "bytes": 898630,
+      "papers": 351,
+      "source_records": 373,
+      "sha256": "cc1e656ec94b63191d2e79c9a7feb9df5c1b6501ed00a78378a7e2f05783b0f0"
+    },
+    {
+      "file": "full-catalog-004.json",
+      "bytes": 898335,
+      "papers": 347,
+      "source_records": 378,
+      "sha256": "759d9dee470f919ab0bb23adb605455169ca87ec291390e3ce04fd5d9fa645d9"
+    },
+    {
+      "file": "full-catalog-005.json",
+      "bytes": 899631,
+      "papers": 353,
+      "source_records": 374,
+      "sha256": "f57bf842e9431b4a2133201fb367996fd56f979a251a53d1fa14b67c3103daf6"
+    },
+    {
+      "file": "full-catalog-006.json",
+      "bytes": 898621,
+      "papers": 363,
+      "source_records": 379,
+      "sha256": "6017fb8a3629a8fa19e308072305f23c6c0453115e1d1b395c30c2eefdce373d"
+    },
+    {
+      "file": "full-catalog-007.json",
+      "bytes": 899602,
+      "papers": 362,
+      "source_records": 392,
+      "sha256": "c60d7e6276256f2f11c5d80e022da2084192fb57c21cd2e4797c8c94bc64d750"
+    },
+    {
+      "file": "full-catalog-008.json",
+      "bytes": 899764,
+      "papers": 359,
+      "source_records": 392,
+      "sha256": "dbf76c1e1ee70e4515d80e2f0211cf2c4d42ec9042350717780d3b078fc1ef68"
+    },
+    {
+      "file": "full-catalog-009.json",
+      "bytes": 898842,
+      "papers": 372,
+      "source_records": 392,
+      "sha256": "00772f0327522f64c6020f0ae8172ba81bcf684792511e1bb56a809c1806f94a"
+    },
+    {
+      "file": "full-catalog-010.json",
+      "bytes": 898843,
+      "papers": 364,
+      "source_records": 390,
+      "sha256": "3001d287d76f02fce3ce89549cead53f6d886414b79f15533e7fc08c074bf141"
+    },
+    {
+      "file": "full-catalog-011.json",
+      "bytes": 898072,
+      "papers": 375,
+      "source_records": 390,
+      "sha256": "70b2cdcbc5f8f3f142771136f34dde04e17f8288e40a486e63c1d81e3fa3a039"
+    },
+    {
+      "file": "full-catalog-012.json",
+      "bytes": 899958,
+      "papers": 386,
+      "source_records": 389,
+      "sha256": "674bb9d444fa2c493e98e8305cbd543e5d707157a61f9ec6d4d0243312ed974d"
+    },
+    {
+      "file": "full-catalog-013.json",
+      "bytes": 898195,
+      "papers": 388,
+      "source_records": 389,
+      "sha256": "9eb77829cbf7d11b205b183452d9e15337bccde15e6b8616310506b3394a3c18"
+    },
+    {
+      "file": "full-catalog-014.json",
+      "bytes": 898523,
+      "papers": 345,
+      "source_records": 481,
+      "sha256": "f08019e480654d98960f0991047a45f7688dc4a3dc925210f34d4010ec29c851"
+    },
+    {
+      "file": "full-catalog-015.json",
+      "bytes": 898822,
+      "papers": 340,
+      "source_records": 485,
+      "sha256": "b571e7c227a56b51a98efb943fc6b95bed023c5371e4bc6540784af860b4c125"
+    },
+    {
+      "file": "full-catalog-016.json",
+      "bytes": 898922,
+      "papers": 344,
+      "source_records": 489,
+      "sha256": "30b29e368f8b60a3218451e2b1bd7f58ac832e7d00fb07973b133d9a7dfe3406"
+    },
+    {
+      "file": "full-catalog-017.json",
+      "bytes": 897309,
+      "papers": 333,
+      "source_records": 483,
+      "sha256": "9e76d38a3e3e8bf80be5b62b30b21e9d83cde2d6d1229b3dfeab7685200c5a42"
+    },
+    {
+      "file": "full-catalog-018.json",
+      "bytes": 899054,
+      "papers": 321,
+      "source_records": 497,
+      "sha256": "808cac6cc2a90f3b2d5febc1577869d3d5a73f273fc0940f970b73c04351d41b"
+    },
+    {
+      "file": "full-catalog-019.json",
+      "bytes": 898894,
+      "papers": 321,
+      "source_records": 495,
+      "sha256": "bbcefdadbfb10323d1d62f91fcc5a0c32ab3fdd422fdbe2351b9dd2c4e5e9357"
+    },
+    {
+      "file": "full-catalog-020.json",
+      "bytes": 898432,
+      "papers": 335,
+      "source_records": 477,
+      "sha256": "4e2876e70119b418ca62d9369e0b4e876e05a26c4a083c020bcff4af1d12ecdd"
+    },
+    {
+      "file": "full-catalog-021.json",
+      "bytes": 899318,
+      "papers": 335,
+      "source_records": 485,
+      "sha256": "42a749005ff52e59f84d12e63c5856dbcd4a1fa1721a552f6a4dbce3f04be1e2"
+    },
+    {
+      "file": "full-catalog-022.json",
+      "bytes": 898423,
+      "papers": 319,
+      "source_records": 494,
+      "sha256": "b19ce07a17cb6829ed29971f7489931852c690e17fc9109eee6c727acc3969ee"
+    },
+    {
+      "file": "full-catalog-023.json",
+      "bytes": 898129,
+      "papers": 330,
+      "source_records": 486,
+      "sha256": "4045182f9908b16ac22cef85c2cefc91a8770440116a272373ac5aa6304f2865"
+    },
+    {
+      "file": "full-catalog-024.json",
+      "bytes": 899726,
+      "papers": 314,
+      "source_records": 513,
+      "sha256": "54b2e3d0f065999d97a5c96baaddb95edc2c1860ff8d2e6213b197c522945daf"
+    },
+    {
+      "file": "full-catalog-025.json",
+      "bytes": 899069,
+      "papers": 313,
+      "source_records": 518,
+      "sha256": "e90e2e3eba9e6977657222a009344809c359243671f8c80d60cd9ae40945d259"
+    },
+    {
+      "file": "full-catalog-026.json",
+      "bytes": 898207,
+      "papers": 329,
+      "source_records": 486,
+      "sha256": "23198ffa6d3148580556b7cab75a43fc587895b6eebe36b76c742dd73648a897"
+    },
+    {
+      "file": "full-catalog-027.json",
+      "bytes": 898573,
+      "papers": 336,
+      "source_records": 488,
+      "sha256": "8ac73d5c138722d5f611c18765fc203a40556b731250de042d98d67764476dd2"
+    },
+    {
+      "file": "full-catalog-028.json",
+      "bytes": 899861,
+      "papers": 336,
+      "source_records": 491,
+      "sha256": "c6a3615fae13c004043264acdff0d27c67a9a73bd79271e2f4013bed71362b8d"
+    },
+    {
+      "file": "full-catalog-029.json",
+      "bytes": 899910,
+      "papers": 339,
+      "source_records": 483,
+      "sha256": "f9b8de93652c2209ec652961bc7a7afdcd1ab1d73deab633bd421a06294d1300"
+    },
+    {
+      "file": "full-catalog-030.json",
+      "bytes": 896873,
+      "papers": 339,
+      "source_records": 485,
+      "sha256": "d58bb19b2c8d6ec60a29b7f761d6e60a686346de613224e5fa805bab8b5c19fa"
+    },
+    {
+      "file": "full-catalog-031.json",
+      "bytes": 899784,
+      "papers": 331,
+      "source_records": 497,
+      "sha256": "3a3f1c36631e5d75b9cf65ee0aee9827c39c582a4103915e95ba7e053a7ef76f"
+    },
+    {
+      "file": "full-catalog-032.json",
+      "bytes": 898597,
+      "papers": 368,
+      "source_records": 452,
+      "sha256": "694cffd35f6b8c70ca08303a5f3ee0bd08c97cfc7b79c7e8b837ca327d5e81c9"
+    },
+    {
+      "file": "full-catalog-033.json",
+      "bytes": 897687,
+      "papers": 406,
+      "source_records": 406,
+      "sha256": "9530d53886729c727a98b78d4a40a00606ea1cf8c9a8f0e292e89b1095a22af1"
+    },
+    {
+      "file": "full-catalog-034.json",
+      "bytes": 898706,
+      "papers": 394,
+      "source_records": 394,
+      "sha256": "99aadf95d80e1c405ca7e5d4f5ae62d19e7625c461dc481413c3fea4d1279344"
+    },
+    {
+      "file": "full-catalog-035.json",
+      "bytes": 897857,
+      "papers": 390,
+      "source_records": 390,
+      "sha256": "cf9a66cc303e5b36c5d7081edc1a5d651266d6d3094006fd66fb07a828d949fa"
+    },
+    {
+      "file": "full-catalog-036.json",
+      "bytes": 899416,
+      "papers": 389,
+      "source_records": 389,
+      "sha256": "eb7c68c292b6c5288156e93e9acb82160bd8ecd1e19b7583a43561eb8871be38"
+    },
+    {
+      "file": "full-catalog-037.json",
+      "bytes": 899420,
+      "papers": 394,
+      "source_records": 394,
+      "sha256": "8feb005889158e6ccad1330df2e899363919f97084469767b6b9a2d218a3a7ec"
+    },
+    {
+      "file": "full-catalog-038.json",
+      "bytes": 898392,
+      "papers": 387,
+      "source_records": 387,
+      "sha256": "15411a2695d775f98887ddc920d8fbec3b2e97e7b3f1a6fb1fd7715b0b072634"
+    },
+    {
+      "file": "full-catalog-039.json",
+      "bytes": 899255,
+      "papers": 390,
+      "source_records": 390,
+      "sha256": "255870b82192e9c370edc5c9f47532f98b1eb29583998c4e0a2002fcc38726e4"
+    },
+    {
+      "file": "full-catalog-040.json",
+      "bytes": 898825,
+      "papers": 392,
+      "source_records": 392,
+      "sha256": "daa7de946a58f3be873846777cd82347a43805111c31e7f258218f1da7cdb413"
+    },
+    {
+      "file": "full-catalog-041.json",
+      "bytes": 899849,
+      "papers": 392,
+      "source_records": 392,
+      "sha256": "f29ada801279f7dadd9e620ed64b1a7484d190f52b072e2a7c305869ddbb802e"
+    },
+    {
+      "file": "full-catalog-042.json",
+      "bytes": 899303,
+      "papers": 400,
+      "source_records": 400,
+      "sha256": "0958a8dacdf362111c182c0942cf9cdc98be034d07bd96965bfd9bd006b1f390"
+    },
+    {
+      "file": "full-catalog-043.json",
+      "bytes": 899280,
+      "papers": 397,
+      "source_records": 397,
+      "sha256": "ef78457f1ef615aad0a7214774abf88ad5dfbc2acdc1b4b9a0b70cf29119e2a5"
+    },
+    {
+      "file": "full-catalog-044.json",
+      "bytes": 898338,
+      "papers": 395,
+      "source_records": 395,
+      "sha256": "ecd98e5c3a87a21919d54afcd85292a5b66df75c5b71e180348fd5b0f9b1e34c"
+    },
+    {
+      "file": "full-catalog-045.json",
+      "bytes": 898402,
+      "papers": 397,
+      "source_records": 397,
+      "sha256": "cbf234915ff3012ea558e7ad979e1facbba9a2cee35169c3a982e5941010a32f"
+    },
+    {
+      "file": "full-catalog-046.json",
+      "bytes": 899320,
+      "papers": 386,
+      "source_records": 386,
+      "sha256": "b9371b30d4388f3d5f9e48a345a6d055ba405b24daa3523bc98b513d1fd91dd2"
+    },
+    {
+      "file": "full-catalog-047.json",
+      "bytes": 899728,
+      "papers": 380,
+      "source_records": 380,
+      "sha256": "28eed18fdef8317f4eabc4d44d75af9a858d18df4ad6a862341d2467e0865dc5"
+    },
+    {
+      "file": "full-catalog-048.json",
+      "bytes": 899353,
+      "papers": 393,
+      "source_records": 393,
+      "sha256": "728a8a6d47699b8db5310edbd8658ba5e0c7b274548051873a54793b50cf5c46"
+    },
+    {
+      "file": "full-catalog-049.json",
+      "bytes": 899460,
+      "papers": 404,
+      "source_records": 404,
+      "sha256": "f657b35038453995b41263e51d817ce912f22d26004ec03a26a1cc35b28dada4"
+    },
+    {
+      "file": "full-catalog-050.json",
+      "bytes": 898820,
+      "papers": 390,
+      "source_records": 390,
+      "sha256": "6b194e33a5c94772ccf2e07906b9586374d2f392e7d0685bb49a5fecab453af1"
+    },
+    {
+      "file": "full-catalog-051.json",
+      "bytes": 898575,
+      "papers": 396,
+      "source_records": 396,
+      "sha256": "0829aa374d8921e2ec805816c25105f660e1835cff21c0018a237fd519217efd"
+    },
+    {
+      "file": "full-catalog-052.json",
+      "bytes": 899458,
+      "papers": 393,
+      "source_records": 393,
+      "sha256": "7cc61a7717f109e68e66e9ef76cb7da84467a56f173d7afffb94aec973a81cbb"
+    },
+    {
+      "file": "full-catalog-053.json",
+      "bytes": 899801,
+      "papers": 393,
+      "source_records": 393,
+      "sha256": "a798a77a0819dcef54e5a088109d03f76860de48014952e285aca3d800076726"
+    },
+    {
+      "file": "full-catalog-054.json",
+      "bytes": 899327,
+      "papers": 391,
+      "source_records": 391,
+      "sha256": "b26068a062a2d223aab824b437253d6f20fd55ebf3df5fd141c797defa85705c"
+    },
+    {
+      "file": "full-catalog-055.json",
+      "bytes": 898865,
+      "papers": 399,
+      "source_records": 399,
+      "sha256": "5bdc82081cc8d3baa0dc272dc583a2a0f66ce31d8bddd05ea8f15f064d97787c"
+    },
+    {
+      "file": "full-catalog-056.json",
+      "bytes": 899110,
+      "papers": 399,
+      "source_records": 399,
+      "sha256": "44d88f8c8daa5fe864fefffef32ba4a1eae194542d311a2942765d08bf6e7780"
+    },
+    {
+      "file": "full-catalog-057.json",
+      "bytes": 899697,
+      "papers": 401,
+      "source_records": 401,
+      "sha256": "c499e44f11aa3f9b191907bd204c7e69613094dff43bf410f2afc9d90a9e2964"
+    },
+    {
+      "file": "full-catalog-058.json",
+      "bytes": 899867,
+      "papers": 395,
+      "source_records": 395,
+      "sha256": "50e808b8497aa9d8543486ed435c1512ba85497efb02f1b2057f85fbb8860212"
+    },
+    {
+      "file": "full-catalog-059.json",
+      "bytes": 898614,
+      "papers": 398,
+      "source_records": 398,
+      "sha256": "5331003e1a5ea34c87724beaee814f0874deec9984867455d5d48264d977e75d"
+    },
+    {
+      "file": "full-catalog-060.json",
+      "bytes": 898703,
+      "papers": 389,
+      "source_records": 389,
+      "sha256": "f8c6babbafc79318b1f2b966d808092f8c0c8a106dbac6e4e4f967ab83c80ff7"
+    },
+    {
+      "file": "full-catalog-061.json",
+      "bytes": 898499,
+      "papers": 373,
+      "source_records": 373,
+      "sha256": "ad8885d07f8aeb211c8083d217299f3aa0578c35c641ce487fab71e72f2f81a2"
+    },
+    {
+      "file": "full-catalog-062.json",
+      "bytes": 899970,
+      "papers": 370,
+      "source_records": 370,
+      "sha256": "df6ba396f99484f5c25249aba734575cfb98118c389e227a25b127e80aa6531b"
+    },
+    {
+      "file": "full-catalog-063.json",
+      "bytes": 899993,
+      "papers": 371,
+      "source_records": 371,
+      "sha256": "f6828c003176640191aa927607f5931528d20baec9aebca6d2fcb342f9b30274"
+    },
+    {
+      "file": "full-catalog-064.json",
+      "bytes": 898066,
+      "papers": 370,
+      "source_records": 370,
+      "sha256": "db7efc98ee74f2ecd252a7f3fe009abf6ae0a11721d7eb3bcc304521af35478f"
+    },
+    {
+      "file": "full-catalog-065.json",
+      "bytes": 898811,
+      "papers": 371,
+      "source_records": 371,
+      "sha256": "9ad36e182418109c891d334145e1d1d096491ba4a7d99171f7cad2915a75cbaa"
+    },
+    {
+      "file": "full-catalog-066.json",
+      "bytes": 898736,
+      "papers": 371,
+      "source_records": 372,
+      "sha256": "1a1bb085c3c0c8430e478862fa5fa6953ab3ea288cdadcb0fa600e0cedf752a0"
+    },
+    {
+      "file": "full-catalog-067.json",
+      "bytes": 898312,
+      "papers": 370,
+      "source_records": 370,
+      "sha256": "74c6316603a14bc2b79daa81d4f874ecfd0f77611c1538fc690b5b6e61ec5dae"
+    },
+    {
+      "file": "full-catalog-068.json",
+      "bytes": 898319,
+      "papers": 376,
+      "source_records": 376,
+      "sha256": "73f3de008a5e744c9f2f21ed797a620eb9bde22ef4f346c704d7d4a3e890278b"
+    },
+    {
+      "file": "full-catalog-069.json",
+      "bytes": 899963,
+      "papers": 393,
+      "source_records": 393,
+      "sha256": "7ee1a24758ed271fd4e08473b05d6ad4677400f02f47bb543639ca5a9697c677"
+    },
+    {
+      "file": "full-catalog-070.json",
+      "bytes": 898250,
+      "papers": 393,
+      "source_records": 393,
+      "sha256": "4deedf25fcc6c4222b0dd9d857b6105338d6c1f7bc782eb0132710be6cf869c7"
+    },
+    {
+      "file": "full-catalog-071.json",
+      "bytes": 898636,
+      "papers": 397,
+      "source_records": 397,
+      "sha256": "8df2d13952987920b21b3d61b13516ad85ff4b2e54fd1fa6a178b1568f631a27"
+    },
+    {
+      "file": "full-catalog-072.json",
+      "bytes": 899581,
+      "papers": 395,
+      "source_records": 395,
+      "sha256": "7799a2fa06eb94fded65816e90d864edca3fc1736a1fec4317a87c6dd1aeeb72"
+    },
+    {
+      "file": "full-catalog-073.json",
+      "bytes": 898911,
+      "papers": 393,
+      "source_records": 393,
+      "sha256": "ea30affe0c92ef9ab5a9ed2ec0d9de7f83475412f040c116826388c992cc5388"
+    },
+    {
+      "file": "full-catalog-074.json",
+      "bytes": 898162,
+      "papers": 378,
+      "source_records": 378,
+      "sha256": "0bc553b3682ea5800359e2362820c211b51296eddbcf52b5cd776bb4614fc743"
+    },
+    {
+      "file": "full-catalog-075.json",
+      "bytes": 899628,
+      "papers": 380,
+      "source_records": 380,
+      "sha256": "206cef19cfe13f3a78c49f37ec0a552257632a4dc57de37b5fe978377f84b9c8"
+    },
+    {
+      "file": "full-catalog-076.json",
+      "bytes": 897967,
+      "papers": 380,
+      "source_records": 380,
+      "sha256": "6605ca5894b6a196b6bc8e5e8fb151fda0ac8cef14fc8592899a8941329b40d9"
+    },
+    {
+      "file": "full-catalog-077.json",
+      "bytes": 898588,
+      "papers": 380,
+      "source_records": 380,
+      "sha256": "b1aa93f3e2b1c998ab7bf9740f2ed2152acf1e083e6606e6a7f487a672e7aa8a"
+    },
+    {
+      "file": "full-catalog-078.json",
+      "bytes": 899074,
+      "papers": 377,
+      "source_records": 377,
+      "sha256": "1a9e84e17cf680b1be6de8ddc0574c7292635b198cad54d0b1bf9f1a0ae4a4e2"
+    },
+    {
+      "file": "full-catalog-079.json",
+      "bytes": 49799,
+      "papers": 20,
+      "source_records": 20,
+      "sha256": "2a787a2736e673b91814566f570f3732241d0c7ec05ed2026d9513ee02cab670"
+    }
+  ],
+  "conference_counts": {
+    "series": 21,
+    "confirmed_by_year": {
+      "2025": 8367,
+      "2026": 6203
+    },
+    "confirmed_labels": {
+      "Spotlight": 2343,
+      "Oral": 10996,
+      "Highlight": 1227,
+      "Outstanding Paper Award": 4
+    },
+    "groups": [
+      {
+        "conference": "3DV",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 21
+      },
+      {
+        "conference": "3DV",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 22
+      },
+      {
+        "conference": "AAAI",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 600
+      },
+      {
+        "conference": "AAAI",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 1170
+      },
+      {
+        "conference": "ACL",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 279
+      },
+      {
+        "conference": "ACL",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 451
+      },
+      {
+        "conference": "ACMMM",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 174
+      },
+      {
+        "conference": "AI4X",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 143
+      },
+      {
+        "conference": "AI4X",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 175
+      },
+      {
+        "conference": "AISTATS",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 37
+      },
+      {
+        "conference": "AISTATS",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 8
+      },
+      {
+        "conference": "COLM",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 24
+      },
+      {
+        "conference": "COLM",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 24
+      },
+      {
+        "conference": "CORL",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 42
+      },
+      {
+        "conference": "CORL",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 93
+      },
+      {
+        "conference": "CVPR",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 388
+      },
+      {
+        "conference": "CVPR",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 717
+      },
+      {
+        "conference": "ECCV",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 163
+      },
+      {
+        "conference": "EMNLP",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 340
+      },
+      {
+        "conference": "EMNLP",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 485
+      },
+      {
+        "conference": "ICCV",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 327
+      },
+      {
+        "conference": "ICLR",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 592
+      },
+      {
+        "conference": "ICLR",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 224
+      },
+      {
+        "conference": "ICML",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 318
+      },
+      {
+        "conference": "ICML",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 574
+      },
+      {
+        "conference": "ICRA",
+        "year": 2025,
+        "status": "pending",
+        "records": 2091
+      },
+      {
+        "conference": "ICRA",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 177
+      },
+      {
+        "conference": "IJCAI",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 1202
+      },
+      {
+        "conference": "IJCAI",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 874
+      },
+      {
+        "conference": "IROS",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 2672
+      },
+      {
+        "conference": "IROS",
+        "year": 2026,
+        "status": "pending",
+        "records": 1933
+      },
+      {
+        "conference": "NAACL",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 250
+      },
+      {
+        "conference": "NeurIPS",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 815
+      },
+      {
+        "conference": "NeurIPS",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 341
+      },
+      {
+        "conference": "RSS",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 163
+      },
+      {
+        "conference": "RSS",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 210
+      },
+      {
+        "conference": "WWW",
+        "year": 2025,
+        "status": "confirmed",
+        "records": 154
+      },
+      {
+        "conference": "WWW",
+        "year": 2026,
+        "status": "confirmed",
+        "records": 321
+      }
+    ]
+  }
+}
