@@ -1,0 +1,21 @@
+.rec-preferences{margin:24px 0;border:1px solid var(--line,#dce3db);border-radius:12px;padding:18px 22px;background:var(--surface,#fff)}
+.rec-preferences>summary{font-weight:600;cursor:pointer;font-size:16px}
+.rec-directions{border:0;min-width:0;padding:0;margin:20px 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 24px}
+.rec-directions legend{font-weight:600;margin-bottom:12px}
+.rec-directions details{border-bottom:1px solid var(--line,#dce3db);padding:8px 0}
+.rec-directions summary{cursor:pointer;padding:5px 0;font-size:14px}
+.rec-check{display:flex!important;flex-direction:row!important;align-items:flex-start;gap:8px;font-size:14px!important;line-height:1.6;margin:8px 0!important;font-weight:400!important}
+.rec-check input[type=checkbox]{width:16px!important;height:16px;min-height:16px!important;flex:0 0 16px;margin:4px 0 0;accent-color:#38715b}
+.rec-preferences .actions{flex-wrap:wrap}
+.rec-topic-list{padding-left:20px}
+.rec-profile-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:20px 0}
+.rec-profile-fields label,.rec-feed-filters label{display:flex;flex-direction:column;gap:8px;font-size:14px}
+.rec-profile-fields textarea{resize:vertical;min-height:80px}
+.rec-profile-fields small{color:var(--muted,#68756b);font-size:13px}
+.rec-feed-filters{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin:24px 0}
+.rec-feed-filters label{min-width:160px;flex:1}
+.rec-paper-list{display:flex;flex-direction:column;gap:18px}
+.rec-paper-list .discovery-card{min-width:0}
+.rec-paper-list .discovery-title{text-align:left}
+.rec-paper-list .recommend-reasons{flex-wrap:wrap}
+@media(max-width:650px){.rec-profile-fields,.rec-directions{grid-template-columns:1fr}.rec-preferences{padding:16px}.rec-feed-filters label{flex-basis:100%}}

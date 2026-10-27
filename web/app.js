@@ -117,7 +117,7 @@ function installResearchEvents(){
 async function mountWorkspace() {
   const params = new URLSearchParams(location.search);
   const isAdmin=authSession.user?.is_admin||authSession.user?.role==='admin';
-  const views = new Set(['discover','catalog','library','imports','groups',...(isAdmin?['skills']:[])]);
+  const views = new Set(['discover','recommendations','catalog','library','imports','groups',...(isAdmin?['skills']:[])]);
   const stored = (key,fallback) => {try {const value=JSON.parse(localStorage.getItem(key+':'+authSession.user.id));return value??fallback;} catch {return fallback;}};
   const remember = (key,value) => {try {localStorage.setItem(key+':'+authSession.user.id,JSON.stringify(value));} catch {toast('浏览器无法保存偏好；论文和笔记仍保存在后端。');}};
   const selectedSources=stored('paperstudio-feed-sources',['hf','qbitai','jiqizhixin']);
@@ -135,6 +135,15 @@ async function mountWorkspace() {
   const follows=stored('paperstudio-source-follows',[]),hidden=stored('paperstudio-hidden-discovery',[]);
   const followed=new Set(Array.isArray(follows)?follows.map(String):[]),hiddenItems=new Set(Array.isArray(hidden)?hidden.map(String):[]);
   const app=qs('#app');
+  const recommendationState={};
+  let recommendationPanel=null,recommendationMount=0;
+  function syncRecommendationProfile(profile){
+    for(const key of [...followed])if(key.startsWith('institution:')||key.startsWith('conference:'))followed.delete(key);
+    for(const name of profile.institutions)followed.add('institution:'+name);
+    for(const name of profile.conferences)followed.add('conference:'+name);
+    remember('paperstudio-source-follows',[...followed]);
+  }
+  const legacyRecommendationProfile=()=>({interests:state.interests,follows:[...followed]});
   const mobileNavigation=window.matchMedia?.('(max-width: 900px)');
   const sourceNames={hf:'Hugging Face',qbitai:'量子位',jiqizhixin:'机器之心',arxiv:'arXiv',web:'全网搜索',brave:'Brave',searxng:'SearXNG'};
   const modeNames={abstract:'精简摘要',cards:'卡片粗读',summary:'全文总结',all:'摘要与完整粗读'};
@@ -163,7 +172,7 @@ async function mountWorkspace() {
     return (includeRoot?'<option value="">根目录</option>':'')+state.projects.filter(p=>p.can_edit!==false&&(!excludeId||!blocked.has(p.id))).map(p=>`<option value="${esc(p.id)}" ${p.id===selected?'selected':''}>${esc(projectPath(p.id))}</option>`).join('');
   }
   function sidebar(){
-    const nav=[['discover','搜索与推荐','search'],['catalog','论文索引与关注','source'],['library','我的论文库','book'],['groups','研究小组','folder'],['imports','导入与任务','plus'],...(isAdmin?[['skills','管理员设置','spark']]:[])];
+    const nav=[['recommendations','为你推荐','spark'],['discover','搜索与推荐','search'],['catalog','论文索引与关注','source'],['library','我的论文库','book'],['groups','研究小组','folder'],['imports','导入与任务','plus'],...(isAdmin?[['skills','管理员设置','spark']]:[])];
     return `<aside id="workspace-navigation" class="workspace-sidebar" aria-label="研究空间导航"><div class="workspace-nav-head"><a href="/" class="brand"><span class="brand-symbol">${icons.book}</span><span><strong>PaperStudio</strong><small>让阅读形成自己的脉络</small></span></a><button class="workspace-nav-close icon-button" data-action="close-navigation" aria-label="关闭导航">${icons.close}</button></div><div class="workspace-identity"><span class="avatar">${esc((authSession.user.display_name||authSession.user.username||'我').slice(0,1))}</span><div><strong>${esc(authSession.user.display_name||authSession.user.username)}</strong><small>${isAdmin?'管理员':'个人研究空间'}</small></div><button class="text-button" data-action="logout">退出</button></div><nav aria-label="工作台导航">${nav.map(([key,name,icon])=>`<button class="nav-item ${state.view===key?'active':''}" data-view="${key}" ${state.view===key?'aria-current="page"':''}>${icons[icon]}${name}${key==='imports'?'<span id="active-import-count" class="nav-count"></span>':''}</button>`).join('')}</nav><div class="project-label">研究项目</div><button class="project-item ${state.view==='library'&&!state.projectId?'active':''}" data-project="" ${state.view==='library'&&!state.projectId?'aria-current="page"':''}>${icons.folder}<span>全部论文</span></button><div class="project-tree">${tree()}</div><details class="new-project"><summary>${icons.plus}新建项目</summary><form id="new-project-form"><label>项目名称<input name="name" required maxlength="100" placeholder="例如：文档理解" autocomplete="off"></label><label>所属目录<select name="parent_id">${projectOptions(state.projectId,true)}</select></label><button class="button primary" type="submit">创建项目</button></form></details><div class="sidebar-foot"><span class="connection-dot"></span>论文、笔记与研究成果已连接<small>按项目积累 · 按需共享</small></div></aside>`;
   }
   function publicLink(url,label,classes='text-link') {const safe=safeURL(url);return safe?`<a class="${classes}" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">${label}</a>`:'';}
@@ -283,9 +292,10 @@ async function mountWorkspace() {
     const query=new URLSearchParams({source:state.catalogSource,sort:state.catalogSort,page:String(state.catalogPage),page_size:String(state.catalogPageSize)});
     for(const [name,field] of [['conference','catalogConference'],['conference_year','catalogConferenceYear'],['presentation','catalogPresentation'],['verification_status','catalogVerification'],['direction','catalogDirection'],['topic','catalogTopic']])if(state[field]&&state[field]!=='all')query.set(name,state[field]);
     if(state.catalogQuery.trim())query.set('q',state.catalogQuery.trim());if(state.catalogYear)query.set('year',state.catalogYear);if(state.catalogInstitution.trim())query.set('institution',state.catalogInstitution.trim());
-    const results=await Promise.allSettled([api('/catalog?'+query,{signal}),stats||!state.catalogStats?api('/catalog/stats',{signal}):Promise.resolve(state.catalogStats)]);
+    const results=await Promise.allSettled([api('/catalog?'+query,{signal}),stats||!state.catalogStats?api('/catalog/stats',{signal}):Promise.resolve(state.catalogStats),stats?api('/me/recommendation-profile',{signal}):Promise.resolve(null)]);
     if(seq!==catalogSequence||signal.aborted)return;
-    const [papers,summary]=results;
+    const [papers,summary,profile]=results;
+    if(profile.status==='fulfilled'&&profile.value?.configured)syncRecommendationProfile(profile.value);
     if(papers.status==='fulfilled'){state.catalogItems=list(papers.value);state.catalogTotal=Number(papers.value.total)||0;state.catalogPages=Number(papers.value.pages)||0;state.catalogPage=Number(papers.value.page)||1;}
     else{state.catalogError=papers.reason.message||'索引查询失败，请重试。';}
     if(summary.status==='fulfilled'){state.catalogStats=summary.value;state.catalogStatsError='';}else state.catalogStatsError=summary.reason.message||'覆盖信息读取失败。';
@@ -343,11 +353,16 @@ async function mountWorkspace() {
   }
   function restoreFormFocus(previous){if(!previous)return;const field=qs(previous.selector);field?.focus?.({preventScroll:true});if(typeof previous.start==='number'&&field?.setSelectionRange)try{field.setSelectionRange(previous.start,previous.end);}catch{}}
   function render({focusHeading=false}={}){
+    recommendationPanel?.dispose();recommendationPanel=null;const recMount=++recommendationMount;
     const focused=document.activeElement;
     const previous=!focusHeading&&focused?.form?.id&&focused?.name?{selector:`#${focused.form.id} [name="${focused.name}"]`,start:focused.selectionStart,end:focused.selectionEnd}:null;
-    const titles={discover:'搜索与推荐',catalog:'论文索引与关注',library:'我的论文库',imports:'导入与任务',groups:'研究小组',skills:'管理员设置'};
-    const contents={discover,catalog:catalogArea,library,imports:importsArea,groups:()=>'<div class="page-heading"><div><h1 tabindex="-1">研究小组</h1><p>共享阅读清单与研究成果，保留每个人的独立思考。</p></div></div><div id="groups-panel"></div>',skills:skillsArea};
+    const titles={recommendations:'为你推荐',discover:'搜索与推荐',catalog:'论文索引与关注',library:'我的论文库',imports:'导入与任务',groups:'研究小组',skills:'管理员设置'};
+    const contents={recommendations:()=>'<div id="recommendations-panel"><p role="status">正在载入推荐…</p></div>',discover,catalog:catalogArea,library,imports:importsArea,groups:()=>'<div class="page-heading"><div><h1 tabindex="-1">研究小组</h1><p>共享阅读清单与研究成果，保留每个人的独立思考。</p></div></div><div id="groups-panel"></div>',skills:skillsArea};
     app.innerHTML=`<a class="skip-link" href="#main-content">跳到主要内容</a><div class="workspace-layout workspace-v2 ${state.navOpen?'nav-open':''}">${sidebar()}<button class="workspace-nav-backdrop" data-action="close-navigation" aria-label="关闭导航" tabindex="-1" hidden></button><main id="main-content" class="workspace-main" tabindex="-1"><header class="workspace-topbar"><button id="workspace-nav-toggle" class="workspace-nav-toggle button" data-action="toggle-navigation" aria-controls="workspace-navigation" aria-expanded="false">${icons.menu}<span>导航</span></button><span>研究空间 <span class="crumb-separator">/</span> ${titles[state.view]}</span><span class="pill">PaperStudio</span></header><div class="workspace-content">${contents[state.view]()}</div></main></div>`;
+    if(state.view==='recommendations')import('./recommendations-ui.js').then(module=>{
+      const root=qs('#recommendations-panel');if(recMount!==recommendationMount||!root)return;
+      recommendationPanel=module.mountRecommendations(root,{api,esc,safeURL,toast,onOpen:(item,options)=>openIndexedPaper({...item,catalog_paper_id:item.id},options),onProfile:syncRecommendationProfile,legacy:legacyRecommendationProfile(),state:recommendationState});
+    }).catch(error=>{const root=qs('#recommendations-panel');if(recMount===recommendationMount&&root)root.innerHTML='<p role="alert">'+esc(error.message)+'</p>';});
     updateURL();updateImportCount();navigationState(state.navOpen);if(focusHeading)qs('.workspace-content h1')?.focus?.();else restoreFormFocus(previous);if(state.view==='groups')import('./collaboration-ui.js').then(module=>module.mountGroups(qs('#groups-panel'))).catch(error=>toast(error.message));
   }
   function updateImportCount(){const count=state.imports.filter(t=>['queued','running'].includes(t.status)).length;const el=qs('#active-import-count');if(el){el.textContent=count?String(count):'';el.hidden=!count;}}
@@ -384,8 +399,8 @@ async function mountWorkspace() {
   }
   async function refreshCapabilities(){if(!isAdmin)return;const [caps,config]=await Promise.allSettled([api('/capabilities'),api('/discovery/config')]);if(caps.status==='fulfilled')state.capabilities=caps.value;if(config.status==='fulfilled')state.discoveryConfig=config.value;}
   async function setView(view){if(!views.has(view))return;state.view=view;state.editProject=false;state.navOpen=false;render({focusHeading:true});if(view==='library')await loadPapers();if(view==='discover'&&!state.discoveryItems.length&&!state.discoveryLoading)await loadDiscovery();if(view==='imports')await loadImports();if(view==='catalog')await loadCatalog({stats:true});schedulePoll();}
-  function openImport({url='',title='',paperId=null,projectId}={}){
-    state.importer={...state.importer,kind:paperId?'existing':'url',url,title,paperId,file:null,projectId:projectId||state.projectId||state.importer.projectId||'inbox'};
+  function openImport({url='',title='',paperId=null,projectId,catalogPaperId=null}={}){
+    state.importer={...state.importer,kind:paperId?'existing':'url',url,title,paperId,catalogPaperId,file:null,projectId:projectId||state.projectId||state.importer.projectId||'inbox'};
     if(!state.projects.some(p=>p.id===state.importer.projectId&&p.can_edit!==false))state.importer.projectId=authSession.user.inbox_id||state.projects.find(p=>p.can_edit!==false)?.id||'inbox';
     state.importFailure='';state.importMessage='';state.view='imports';render();loadImports();qs('#import-form input')?.focus();
   }
@@ -395,13 +410,13 @@ async function mountWorkspace() {
     if(!item)return;
     const url=safeURL(item.resolve?.url)||safeURL(item.pdf_url)||safeURL(item.url);
     if(item.resolve?.action==='search'||!url){state.searchQuery=item.resolve?.query||item.title;state.searchScope='arxiv';state.searchPage=1;state.discoveryMode='search';state.view='discover';render();await loadDiscovery();toast('正在查找独立论文入口；不会下载会议日程。');return;}
-    if(!read){openImport({url,title:item.title});return;}
+    if(!read){openImport({url,title:item.title,catalogPaperId:item.catalog_paper_id});return;}
     const projectId=state.projectId||authSession.user.inbox_id||state.projects[0]?.id;
-    const result=await api('/resolve',{method:'POST',body:{url,project_id:projectId,title:item.title}});
+    const result=await api('/resolve',{method:'POST',body:{url,project_id:projectId,title:item.title,...(item.catalog_paper_id?{catalog_paper_id:item.catalog_paper_id}:{})}});
     const paperId=result.paper_id||result.paper?.id;
     if(paperId){location.assign(`/read/${encodeURIComponent(paperId)}?project=${encodeURIComponent(result.project_id||projectId)}`);return;}
     if(result.action==='search'){state.searchQuery=result.query||item.title;state.searchScope='arxiv';state.searchPage=1;state.discoveryMode='search';state.view='discover';render();await loadDiscovery();return;}
-    openImport({url:safeURL(result.source?.download_url)||url,title:item.title,projectId});
+    openImport({url:safeURL(result.source?.download_url)||url,title:item.title,projectId,catalogPaperId:item.catalog_paper_id});
   }
   app.addEventListener('click',async event=>{
     const button=event.target.closest('button');if(!button)return;
@@ -409,8 +424,8 @@ async function mountWorkspace() {
       if(button.dataset.clearCatalog){const mapping=catalogFilterFields[button.dataset.clearCatalog];if(mapping){const [field]=mapping;state[field]=['source','verification_status'].includes(button.dataset.clearCatalog)?'all':'';if(button.dataset.clearCatalog==='direction')state.catalogTopic='';const control=qs('#catalog-search-form')?.elements?.[button.dataset.clearCatalog];if(control)control.value=state[field];state.catalogPage=1;await loadCatalog();(qs('#catalog-active-filters button')||qs('#catalog-search-form input'))?.focus?.();}return;}
       if(button.dataset.view){await setView(button.dataset.view);return;}
       if('project' in button.dataset){state.projectId=button.dataset.project;await setView('library');return;}
-      if(button.dataset.catalogPaper){await openIndexedPaper(state.catalogItems.find(p=>p.id===button.dataset.catalogPaper));return;}
-      if(button.dataset.openCatalog){await openIndexedPaper(state.catalogItems.find(p=>p.id===button.dataset.openCatalog),{read:true});return;}
+      if(button.dataset.catalogPaper){const item=state.catalogItems.find(p=>p.id===button.dataset.catalogPaper);if(item)await openIndexedPaper({...item,catalog_paper_id:item.id});return;}
+      if(button.dataset.openCatalog){const item=state.catalogItems.find(p=>p.id===button.dataset.openCatalog);if(item)await openIndexedPaper({...item,catalog_paper_id:item.id},{read:true});return;}
       if('openResult' in button.dataset){const item=state.discoveryItems[Number(button.dataset.openResult)];if(item.kind==='paper'){await openIndexedPaper(item,{read:true});}else{state.searchQuery=item.title;state.searchScope='arxiv';state.discoveryMode='search';render();await loadDiscovery();}return;}
       if(button.dataset.catalogInstitution){await browseCatalogCategory('institution',button.dataset.catalogInstitution);return;}
       if(button.dataset.catalogConference){await browseCatalogCategory('conference',button.dataset.catalogConference);return;}
@@ -418,7 +433,12 @@ async function mountWorkspace() {
       if(button.dataset.direction){if(button.dataset.directionScope==='discover'){setDirection('discover',button.dataset.direction,button.dataset.topic||'');render();await loadDiscovery();}else{setDirection('catalog',button.dataset.direction,button.dataset.topic||'');render();await loadCatalog();}return;}
       if(button.dataset.catalogPage){state.catalogPage=Math.max(1,Math.min(state.catalogPages||1,Number(button.dataset.catalogPage)));await loadCatalog();return;}
       if(button.dataset.importKind){state.importer.kind=button.dataset.importKind;state.importer.paperId=null;state.importFailure='';render();return;}
-      if(button.dataset.follow){const id=button.dataset.follow;followed.has(id)?followed.delete(id):followed.add(id);remember('paperstudio-source-follows',[...followed]);render();toast('关注偏好已保存');return;}
+      if(button.dataset.follow){const id=button.dataset.follow,enabled=!followed.has(id);button.disabled=true;
+        try{if(id.startsWith('institution:')||id.startsWith('conference:')){
+          const module=await import('./recommendations-ui.js');await module.loadProfile(api,legacyRecommendationProfile());
+          const [kind,...rest]=id.split(':');syncRecommendationProfile(await api('/me/recommendation-profile/follow',{method:'PATCH',body:{kind,value:rest.join(':'),enabled}}));
+        }else{enabled?followed.add(id):followed.delete(id);remember('paperstudio-source-follows',[...followed]);}
+        render();toast('关注偏好已保存');}finally{if(button.isConnected)button.disabled=false;}return;}
       if(button.dataset.processPaper){const p=state.papers.find(x=>x.id===button.dataset.processPaper);if(p)openImport({paperId:p.id,title:p.title,projectId:button.dataset.processProject});return;}
       if('importResult' in button.dataset||'importArticle' in button.dataset){const index=Number(button.dataset.importResult??button.dataset.importArticle),item=state.discoveryItems[index];if(!item)return;const urls=paperURLs(item);const url='importArticle' in button.dataset?urls[Number(button.dataset.linkIndex)]:urls[0]||(item.kind==='paper'?safeURL(item.url):'');if(url)openImport({url,title:item.kind==='paper'?item.title:''});return;}
       if('hideResult' in button.dataset){const item=state.discoveryItems[Number(button.dataset.hideResult)];if(item){hiddenItems.add(String(item.id||item.url));remember('paperstudio-hidden-discovery',[...hiddenItems]);paintDiscovery();}return;}
@@ -465,7 +485,7 @@ async function mountWorkspace() {
     if(field.form?.id==='catalog-search-form'){const key={q:'catalogQuery',institution:'catalogInstitution'}[field.name];if(key)state[key]=field.value;}
     if(field.id==='library-query'){state.query=field.value;clearTimeout(debounce);debounce=setTimeout(loadPapers,220);}
     if(field.id==='source-query'){state.sourceQuery=field.value;const pos=field.selectionStart;render();const input=qs('#source-query');input.focus();input.setSelectionRange(pos,pos);}
-    if(field.form?.id==='import-form'&&['url','title'].includes(field.name))state.importer[field.name]=field.value;
+    if(field.form?.id==='import-form'&&['url','title'].includes(field.name)){if(field.name==='url'&&field.value!==state.importer.url)state.importer.catalogPaperId=null;state.importer[field.name]=field.value;}
     if(field.form?.id==='discovery-search-form'&&field.name==='q')state.searchQuery=field.value;
     if(field.form?.id==='interests-form'&&field.name==='interests')state.interests=field.value;
   });
@@ -509,7 +529,7 @@ async function mountWorkspace() {
           const file=s.file||fd.get('file');if(!file?.size)throw new Error('请选择 PDF 文件。');if(file.size>50*1048576)throw new Error('PDF 超过 50 MB 限制。');const body=new FormData();body.set('file',file);body.set('project_id',s.projectId);body.set('title',s.title);body.set('processing',JSON.stringify(s.processing));task=await api('/imports/file',{method:'POST',body});
         }else{
           const body={project_id:s.projectId,title:s.title,processing:{...s.processing}};
-          if(s.kind==='existing')body.paper_id=s.paperId;else{const url=safeURL(fd.get('url'));if(!url)throw new Error('请填写有效的 HTTP(S) 论文链接。');s.url=url;body.url=url;}
+          if(s.kind==='existing')body.paper_id=s.paperId;else{const url=safeURL(fd.get('url'));if(!url)throw new Error('请填写有效的 HTTP(S) 论文链接。');s.url=url;body.url=url;if(s.catalogPaperId)body.catalog_paper_id=s.catalogPaperId;}
           task=await api('/imports',{method:'POST',body});
         }
         state.importMessage=task.paper_id?'原文已入库，可从下方任务打开阅读；后台继续处理所选步骤。':'导入已排队。下载完成后即可打开原文，其余步骤继续在后台执行。';await loadImports();const updatedFeedback=qs('#import-feedback');if(updatedFeedback){updatedFeedback.textContent=state.importMessage;updatedFeedback.classList.remove('has-error');}toast('处理计划已保存');
@@ -527,4 +547,5 @@ async function mountWorkspace() {
     render();loadImports();if(state.view==='discover')await loadDiscovery();else if(state.view==='library')await loadPapers();else if(state.view==='catalog')await loadCatalog({stats:true});
   }catch(e){app.innerHTML=`<main class="boot-state"><span class="brand-symbol">${icons.book}</span><h1 tabindex="-1">工作台暂时无法连接</h1><p>${esc(e.message)}</p><a class="button primary" href="/">重新连接</a></main>`;}
 }
+
 

@@ -18,6 +18,9 @@ from .reading_routes import router as reading_router
 from .auth_routes import router as auth_router
 from .group_routes import router as group_router
 from .research_routes import router as research_router
+from .recommendation_routes import router as recommendation_router
+from .recommendation_profiles import init_recommendations
+from .recommendation_vectors import init_vectors
 
 
 @asynccontextmanager
@@ -27,6 +30,8 @@ async def lifespan(app):
     imports.init_imports()
     discovery.init_discovery()
     catalog.init_catalog()
+    init_recommendations()
+    init_vectors()
     research.init_research()
     if auth.setup_required() and os.environ.get('PAPERSTUDIO_SEED_DEMO', '1') == '1':
         from .sample import seed_sample
@@ -91,6 +96,7 @@ app.include_router(discovery_router)
 app.include_router(catalog_router)
 app.include_router(reading_router)
 app.include_router(research_router)
+app.include_router(recommendation_router)
 
 
 @app.get('/api/sources')
@@ -106,4 +112,5 @@ def index(paper_id: str | None = None):
 
 
 app.mount('/static', StaticFiles(directory=core.ROOT / 'web'), name='static')
+
 

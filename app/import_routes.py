@@ -17,6 +17,7 @@ class ResolveRequest(BaseModel):
     url: str | None = Field(default=None, max_length=4096)
     project_id: str = Field(default="inbox", min_length=1, max_length=100)
     title: str = Field(default="", max_length=500)
+    catalog_paper_id: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 @router.post('/resolve')
@@ -33,6 +34,10 @@ def resolve_paper(body: ResolveRequest):
             paper = imports._existing_for_source(source)
         except HTTPException:
             pass
+    source_paper = paper
+    if body.catalog_paper_id:
+        from .recommendation_profiles import verify_catalog_source
+        verify_catalog_source(source or {}, body.catalog_paper_id)
     # Exact title fallback is limited to visible papers and rejects ambiguity.
     if not paper and body.title.strip():
         key = lambda s: re.sub(r'[^\w]', '', unicodedata.normalize('NFKC', s).casefold())
@@ -47,6 +52,9 @@ def resolve_paper(body: ResolveRequest):
         if len(visible) == 1:
             paper = visible[0]
     if paper:
+        if source_paper and body.catalog_paper_id:
+            from .recommendation_profiles import link_paper
+            link_paper(paper['id'], body.catalog_paper_id)
         try:
             core.require_membership(paper['id'], project['id'])
         except HTTPException:
@@ -60,6 +68,7 @@ class ImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: str | None = Field(default=None, max_length=4096)
     paper_id: str | None = Field(default=None, min_length=1, max_length=100)
+    catalog_paper_id: str | None = Field(default=None, min_length=1, max_length=100)
     project_id: str = Field(default="inbox", min_length=1, max_length=100)
     title: str = Field(default="", max_length=500)
     processing: dict = Field(default_factory=dict)
@@ -119,4 +128,5 @@ def parsed_paper(paper_id: str):
     if value is None:
         raise HTTPException(404, "这篇论文尚未完成全文文字解析")
     return value
+
 

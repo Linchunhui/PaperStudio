@@ -94,10 +94,13 @@ def _steps(import_id: str) -> list[dict]:
 
 
 def create_import(*, project_id: str, url: str | None = None, paper_id: str | None = None,
-                  title: str = "", processing: dict | None = None, refresh: bool = False) -> dict:
+                  title: str = "", processing: dict | None = None, refresh: bool = False,
+                  catalog_paper_id: str | None = None) -> dict:
     project_id = core.get_project(project_id, write=True)["id"]
     if bool(url) == bool(paper_id):
         raise HTTPException(422, "请提供一个链接或一个已入库论文 ID")
+    if catalog_paper_id and not url:
+        raise HTTPException(422, "目录关联需要可核对的论文链接")
     if len(title) > 500:
         raise HTTPException(422, "论文标题不能超过 500 字符")
     processing = normalize_processing(processing)
@@ -108,6 +111,9 @@ def create_import(*, project_id: str, url: str | None = None, paper_id: str | No
         source = {"kind": "existing-paper", "source_sha": paper["sha256"], "canonical_url": None}
     else:
         source = resolve_source(url)
+        if catalog_paper_id:
+            from .recommendation_profiles import verify_catalog_source
+            source["catalog_paper_id"] = verify_catalog_source(source, catalog_paper_id)
         # Opening an already imported title reuses the current immutable PDF.
         # An explicit refresh still fetches a new version of an unversioned URL.
         existing = None if refresh else _existing_for_source(source)
@@ -115,6 +121,9 @@ def create_import(*, project_id: str, url: str | None = None, paper_id: str | No
             paper_id = existing["id"]
             core.link_paper(paper_id, project_id)
             title = title.strip() or existing["title"]
+            if catalog_paper_id:
+                from .recommendation_profiles import link_paper
+                link_paper(paper_id, catalog_paper_id)
         # Validate literal/private targets and DNS before accepting, then again
         # on every actual connection; the download socket is pinned separately.
         if not paper_id:
@@ -321,6 +330,9 @@ def _download(row: dict, step: dict):
             with core.db() as con:
                 con.execute("UPDATE imports SET paper_id=?,updated_at=? WHERE id=?", (paper["id"], core.now(), row["id"]))
                 con.execute("INSERT OR IGNORE INTO paper_sources(id,paper_id,source_json,source_sha,resolved_url,created_at,owner_id) VALUES(?,?,?,?,?,?,?)", (core.uid(), paper["id"], row["source_json"], paper["sha256"], result["resolved_url"], core.now(), auth.current_user_id()))
+            if source.get("catalog_paper_id"):
+                from .recommendation_profiles import link_paper
+                link_paper(paper["id"], source["catalog_paper_id"])
             _update_step(step["id"], status="succeeded", progress={"downloaded_bytes": result["size_bytes"], "source_sha": paper["sha256"], "page_count": paper["page_count"]}, expected_generation=row["generation"])
     finally:
         result["path"].unlink(missing_ok=True)
@@ -494,4 +506,5 @@ def stop_worker():
         _THREAD.join(timeout=2)
     with _LOCK, core.db() as con:
         con.execute("UPDATE import_steps SET status='interrupted',error='导入服务停止，请手动重试',updated_at=? WHERE status='running' AND job_id IS NULL", (core.now(),))
+
 

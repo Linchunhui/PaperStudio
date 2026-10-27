@@ -506,6 +506,8 @@ def _merge(old, new):
 
 def _save_paper(con, identifier, data, now):
     data["id"] = identifier
+    from .recommendation_vectors import invalidate_paper
+    invalidate_paper(con, identifier, data)
     data["classification"] = taxonomy.classify(data["title"], data["abstract"], data.get("directions", []))
     search_text = " ".join([data["title"], data["abstract"], *data["authors"], *data["institutions"], data.get("arxiv_id") or "", data.get("doi") or "", *data.get("directions", []), *[c["conference"] for c in data.get("conferences", [])]]).casefold()
     search_text += " " + " ".join(item["category_name"] + " " + (item["topic_name"] if item["topic_id"] else "")
@@ -595,6 +597,8 @@ def import_bytes(content, filename="catalog.json", *, skip_existing=False):
                 merged = dict(old) if old else {}
                 for duplicate in found[1:]:
                     merged = _merge(merged, json.loads(duplicate["data"]))
+                    from .recommendation_profiles import merge_catalog_identity
+                    merge_catalog_identity(con, duplicate["id"], identifier)
                     con.execute("UPDATE catalog_aliases SET paper_id=? WHERE paper_id=?", (identifier, duplicate["id"]))
                     con.execute("DELETE FROM catalog_papers WHERE id=?", (duplicate["id"],))
                 merged = _merge(merged, incoming) if old else incoming
@@ -745,4 +749,5 @@ async def refresh_hf(week):
     except (ValueError, TypeError) as exc:
         _record_failure("hf-" + week, "HF 元数据格式无效，未更新索引")
         raise HTTPException(502, "HF 元数据格式无效，未更新索引") from None
+
 
