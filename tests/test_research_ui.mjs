@@ -34,6 +34,14 @@ node('#reader-research-panel').oninput({target:{form:{id:'research-question-form
 await context.refreshHistory();
 assert.match(node('#reader-research-panel').innerHTML,/仍在输入的问题/,'A history refresh retains unsubmitted question drafts');
 assert.match(node('#reader-research-panel').innerHTML,/aria-describedby="research-scope"/);
+const selected={source_sha:'abcdef',page:2,quote:'First selected sentence',rects:[]};
+await context.openResearchPanel({project_id:'project',paper_id:'p1',kind:'qa',selection:selected});
+vm.runInContext("current.job={id:'old-answer',status:'succeeded',result:{claims:[{text:'ANSWER FOR FIRST SELECTION',citations:[]}],unanswered:[]}};render();",context);
+await context.openResearchPanel({project_id:'project',paper_id:'p1',kind:'qa',selection:{...selected}});
+assert.match(node('#reader-research-panel').innerHTML,/ANSWER FOR FIRST SELECTION/);
+await context.openResearchPanel({project_id:'project',paper_id:'p1',kind:'qa',selection:{...selected,quote:'Different selected sentence'}});
+assert.doesNotMatch(node('#reader-research-panel').innerHTML,/ANSWER FOR FIRST SELECTION/,'New selection cannot display a previous selection answer');
+assert.match(node('#reader-research-panel').innerHTML,/Different selected sentence/);
 await context.openResearchPanel({project_id:'project',kind:'knowledge',browseOnly:true,target:'#project-research-panel'});
 assert.equal(requests.filter(row=>row.options.method==='POST').length,0,'Browsing saved project knowledge must not generate new content');
 assert.match(node('#project-research-panel').innerHTML,/aria-controls="knowledge-filter-results"/);

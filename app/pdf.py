@@ -1,6 +1,6 @@
-"""Read original PDF bytes and preserve native page geometry as vector SVG.
+"""Read original PDF bytes and preserve native page graphics and geometry.
 
-PyMuPDF's extraction coordinates are unrotated (relative to CropBox); SVG and
+PyMuPDF's extraction coordinates are unrotated (relative to CropBox); images and
 Page.rect are rotated. Quad corners are transformed with rotation_matrix so the
 selectable text layer and the visible page share one coordinate system.
 https://pymupdf.readthedocs.io/en/latest/page.html
@@ -88,6 +88,35 @@ def page_info(path: Path, page_number: int) -> dict:
         raise
     except Exception as exc:
         raise HTTPException(422, "无法读取这页 PDF") from exc
+
+
+def page_png(path: Path, page_number: int, width: int = 1600,
+             clip: tuple[float, float, float, float] | None = None) -> bytes:
+    """Render native PDF graphics without the PDF-to-SVG text-stroke conversion.
+
+    Both the crop and selectable text use rotated page coordinates. Limit the
+    output pixel count as well as its width for unusually tall or large pages.
+    """
+    try:
+        with PDF_LOCK, fitz.open(path) as doc:
+            page = _get_page(doc, page_number)
+            redact_page(page)
+            region = page.rect
+            if clip is not None:
+                x, y, w, h = clip
+                if (not all(math.isfinite(v) for v in clip) or min(x, y) < 0
+                        or min(w, h) <= 0 or x + w > 1.000001 or y + h > 1.000001):
+                    raise HTTPException(422, "裁剪范围须位于论文页面内")
+                region = fitz.Rect(x * region.width, y * region.height,
+                                   (x + w) * region.width, (y + h) * region.height)
+            scale = min(max(256, min(4096, width)) / region.width,
+                        math.sqrt(12_000_000 / region.get_area()), 8.0)
+            return page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=region,
+                                   colorspace=fitz.csRGB, alpha=False).tobytes("png")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(422, "无法渲染这页 PDF") from exc
 
 
 def page_svg(path: Path, page_number: int) -> str:

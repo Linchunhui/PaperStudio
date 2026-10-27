@@ -3,6 +3,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import jobs, reading
+from .core_routes import RectInput
 
 router = APIRouter(prefix="/api", tags=["reading"])
 
@@ -15,6 +16,15 @@ class ParagraphTranslationRequest(BaseModel):
     source_sha: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class SelectionTranslationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_id: str = Field(min_length=1, max_length=100)
+    page: int = Field(ge=1, le=1000, strict=True)
+    source_sha: str = Field(pattern=r"^[a-f0-9]{64}$")
+    selected_text: str = Field(min_length=1, max_length=10000)
+    selected_rects: list[RectInput] = Field(min_length=1, max_length=1000)
+
+
 @router.get("/papers/{paper_id}/pages/{page_number}/reading")
 def page_reading(paper_id: str, page_number: int, project_id: str | None = Query(default=None, min_length=1, max_length=100)):
     return reading.page_reading(paper_id, page_number, project_id)
@@ -23,3 +33,9 @@ def page_reading(paper_id: str, page_number: int, project_id: str | None = Query
 @router.post("/papers/{paper_id}/reading/translate", status_code=202)
 def translate_paragraph(paper_id: str, request: ParagraphTranslationRequest):
     return jobs.enqueue(paper_id=paper_id, kind="paragraph-translate", **request.model_dump())
+
+
+@router.post("/papers/{paper_id}/reading/translate-selection", status_code=202)
+def translate_selection(paper_id: str, request: SelectionTranslationRequest):
+    return jobs.enqueue(paper_id=paper_id, kind="paragraph-translate", **request.model_dump())
+

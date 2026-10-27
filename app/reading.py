@@ -1,7 +1,7 @@
 """Text reflow and explicit paragraph translation, anchored to immutable PDFs.
 
-Extraction is intentionally text-only: it never pretends to recover complex
-formulae, tables, figures, or OCR. The original page remains the authority.
+Text remains anchored to the original PDF. Visual content is retained as native
+page crops alongside reflow text, without inventing table cells or OCR.
 """
 from __future__ import annotations
 
@@ -223,11 +223,13 @@ def page_reading(paper_id: str, page_number: int, project_id: str | None = None)
     from . import parsing
     cached = parsing.load_cached(paper["sha256"], paper.get("_parse_cache_namespace"))
     warnings = list(cached["coverage"].get("warnings", [])) if cached else []
-    warnings.append("图表、复杂公式及多栏阅读顺序请对照原页核验。" if blocks else "本页没有可用文字层，可能是图片或扫描页；请在原 PDF 中阅读或导入 OCR 后的 PDF。")
+    from . import reading_layout
+    layout = reading_layout.compose(paper, page_number, blocks)
+    warnings.append("图表与公式保留原页内容，可点击放大核对。" if blocks else "本页没有可用文字层，已保留原页图像。")
     return {"paper_id": paper_id, "page": page_number, "source_sha": paper["sha256"],
             "extraction_version": cached["version"] if cached else EXTRACTION_VERSION,
             "parser": cached["provider"] if cached else "pymupdf", "blocks": blocks, "has_text": bool(blocks),
-            "existing_translation": _existing_translation(paper, page_number), "warnings": warnings}
+            "existing_translation": _existing_translation(paper, page_number), "warnings": warnings, **layout}
 
 
 def _attach_translations(paper: dict, page_number: int, project_id: str, blocks: list[dict]):
@@ -283,6 +285,19 @@ def paragraph_snapshot(paper: dict, page_number: int | None, block_id: str | Non
             "extraction_version": EXTRACTION_VERSION}
 
 
+def selection_snapshot(paper: dict, page_number: int, source_sha: str, quote: str, rects: list[dict]) -> dict:
+    from . import evidence
+    sources = evidence.selected_sources(paper, "", {"page": page_number,
+        "source_sha": source_sha, "quote": quote, "rects": rects}, "qa", split_text=False)
+    text = sources[0]["text"]
+    if not text or len(text) > MAX_BLOCK_CHARS:
+        raise HTTPException(422, "请选择有效长度的原文词句")
+    identity = ["pdf-selection-v1", source_sha, page_number, text]
+    identifier = "selection-" + hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()[:32]
+    return {"id": identifier, "page": page_number, "text": text,
+            "rects": sources[0].get("rects", []), "scope": "selection", "extraction_version": EXTRACTION_VERSION}
+
+
 def run_translation(payload: dict, cancelled, progress) -> tuple[str, dict]:
     cfg = ai.settings()
     block = payload["paragraph"]
@@ -291,7 +306,7 @@ def run_translation(payload: dict, cancelled, progress) -> tuple[str, dict]:
     system = payload["paragraph_translation_prompt"]
     if len(system) + len(source) > cfg["max_input_chars"]:
         raise ai.ExecutionError("这段文字超过模型输入上限，未调用模型；请调整 AI_MAX_INPUT_CHARS。")
-    coverage = {"scope": "pdf-paragraph", "page": block["page"], "block_id": block["id"],
+    coverage = {"scope": "pdf-selection" if block.get("scope") == "selection" else "pdf-paragraph", "page": block["page"], "block_id": block["id"],
                 "source_sha": payload["source_sha"], "visual_evidence_verified": False}
     if cancelled():
         raise ai.Cancelled()

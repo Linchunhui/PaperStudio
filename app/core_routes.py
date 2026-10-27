@@ -295,6 +295,22 @@ def svg_page(paper_id: str, page_number: int, side: Side = "original", v: str | 
     })
 
 
+@router.get("/papers/{paper_id}/pages/{page_number}.png")
+def png_page(paper_id: str, page_number: int, side: Side = "original", v: str | None = None,
+             width: int = Query(default=1600, ge=256, le=4096),
+             x: float = Query(default=0, ge=0, le=1, allow_inf_nan=False),
+             y: float = Query(default=0, ge=0, le=1, allow_inf_nan=False),
+             w: float = Query(default=1, gt=0, le=1, allow_inf_nan=False),
+             h: float = Query(default=1, gt=0, le=1, allow_inf_nan=False)):
+    paper = core.get_paper(paper_id)
+    asset = _page_asset(paper, page_number, side, v)
+    content = pdf.page_png(asset["path"], asset["pdf_page"], width, (x, y, w, h))
+    return Response(content, media_type="image/png", headers={
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache",
+        "ETag": f'"{asset["source_sha"]}-png-v1-{page_number}-{width}-{x}-{y}-{w}-{h}"',
+    })
+
+
 @router.get("/papers/{paper_id}/pages/{page_number}")
 def page_metadata(paper_id: str, page_number: int, side: Side = "original"):
     paper = core.get_paper(paper_id)
@@ -302,8 +318,11 @@ def page_metadata(paper_id: str, page_number: int, side: Side = "original"):
     sha = asset["source_sha"]
     result = pdf.page_info(asset["path"], asset["pdf_page"])
     result.update(page=page_number, source_sha=sha, translation_run_id=asset["translation_run_id"],
+                  image_url=f"/api/papers/{paper_id}/pages/{page_number}.png?side={side}&v={sha}",
                   svg_url=f"/api/papers/{paper_id}/pages/{page_number}.svg?side={side}&v={sha}")
     return result
+
+
 
 
 @router.get("/papers/{paper_id}/annotations")

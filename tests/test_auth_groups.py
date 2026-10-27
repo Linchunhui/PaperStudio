@@ -129,6 +129,8 @@ def test_project_roles_private_notes_and_revision_visibility(workspace):
         assert project in {p['id'] for p in visible} and private_project not in {p['id'] for p in visible}
         assert member.get(f"/api/papers/{paper['id']}/file").status_code == 200
         assert member.get(f"/api/papers/{private_paper['id']}/file").status_code == 404
+        assert member.get(f"/api/papers/{private_paper['id']}/pages/1.png").status_code == 404
+        assert member.get(f"/api/papers/{paper['id']}/pages/1.png?width=256").status_code == 200
         for path in ('/api/skills','/api/capabilities','/api/sources','/api/discovery/config'):
             assert member.get(path).status_code == 403
     assert viewer.patch(f'/api/projects/{project}',json={'name':'Forbidden'}).status_code == 403

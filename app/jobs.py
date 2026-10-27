@@ -127,6 +127,9 @@ def public_job(row: dict) -> dict:
         result["block_id"] = block.get("id")
         result["skill_adapter"] = skill.get("adapter")
         result["translation_model"] = provider.get("model")
+        result["selection_scope"] = block.get("scope") == "selection"
+        if result["selection_scope"]:
+            result["selection_text"] = block.get("text", "")
     return result
 
 
@@ -168,7 +171,8 @@ def _configuration(kind: str):
 
 
 def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", annotation_id: str | None = None, force: bool = False,
-            page: int | None = None, block_id: str | None = None, source_sha: str | None = None) -> dict:
+            page: int | None = None, block_id: str | None = None, source_sha: str | None = None,
+            selected_text: str | None = None, selected_rects: list[dict] | None = None) -> dict:
     if kind not in KINDS or mode not in MODES:
         raise HTTPException(422, "未知任务类型或输出模式")
     if force and kind != "translate":
@@ -187,7 +191,8 @@ def enqueue(paper_id: str, project_id: str, kind: str, mode: str = "cards", anno
     payload = {"schema_version": 1, "paper_id": paper_id, "project_id": project_id, "paper_title": paper["title"], "source_sha": paper["sha256"], "page_count": paper["page_count"], "kind": kind, "mode": mode, "skill": skill, "provider": {"base_url": cfg["base_url"], "model": cfg["model"]}, "input_limits": {"max_input_chars": cfg["max_input_chars"], "max_output_tokens": cfg["max_output_tokens"]}}
     if kind == "paragraph-translate":
         from . import reading
-        payload["paragraph"] = reading.paragraph_snapshot(paper, page, block_id, source_sha)
+        payload["paragraph"] = (reading.selection_snapshot(paper, page, source_sha, selected_text, selected_rects or [])
+                                if selected_text is not None else reading.paragraph_snapshot(paper, page, block_id, source_sha))
         payload["paragraph_prompt_version"] = reading.PROMPT_VERSION
         payload["paragraph_translation_prompt"] = reading.TRANSLATION_SYSTEM
         # The paragraph adapter runs a text-specific role, not the PDF layout

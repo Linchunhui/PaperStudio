@@ -44,14 +44,14 @@ let chosenActions=[],hidden=0,focused=0,allowDraft=true;
 Object.assign(context,{
  hideSelectionMenu:()=>hidden++,isCurrentAnchor:s=>s?.source_sha==='sha',canReplaceDraft:()=>allowDraft,
  qs:()=>({focus:()=>focused++}),openResearch:(kind,selection)=>chosenActions.push({kind,selection}),
- selectReadingBlock:async(page,probe)=>{context.state.readingFocus={page,block_id:probe.blockId};},
- translateReadingBlock:async(page,id)=>{providerCalls++;chosenActions.push({kind:'translate',page,id});},
+ translateExactSelection:async selection=>{providerCalls++;chosenActions.push({kind:'translate',selection});},
 });
 vm.runInContext(between('  async function selectionAction(', '  function clearArea('),context);
 await context.selectionAction('summary');
 assert.equal(chosenActions[0].kind,'summary');assert.equal(context.state.selection,originalDraft);assert.equal(sidebarRenders,0);
 await context.selectionAction('explain');assert.equal(chosenActions[1].kind,'explain');
-await context.selectionAction('translate');assert.equal(providerCalls,1);assert.equal(chosenActions[2].id,'block-2');
+await context.selectionAction('translate');assert.equal(providerCalls,1);assert.equal(chosenActions[2].selection.quote,'selected original words');
+await context.selectionAction('qa');assert.equal(chosenActions[3].kind,'qa');assert.equal(chosenActions[3].selection,context.state.pendingSelection);
 allowDraft=false;await context.selectionAction('note');assert.equal(context.state.selection,originalDraft,'explicit note action respects existing unsaved draft');
 allowDraft=true;await context.selectionAction('note');assert.equal(context.state.selection.quote,'selected original words');
 assert.equal(context.state.visibility,'private');assert.equal(context.state.tab,'notes');assert.equal(sidebarRenders,1);assert.equal(focused,1);
@@ -83,7 +83,9 @@ assert.equal(context.readerAreaRect({x:.2,y:.3},{x:.201,y:.301}),null);
 assert.equal(context.readerAreaRect({x:Infinity,y:.3},{x:.4,y:.5}),null);
 const shell=between('  function shell()', '  function updateReadingLayout(');
 assert.ok(shell.indexOf('class="reading-sidebar"')<shell.indexOf('id="translation-view-toggle"'));
-assert.ok(shell.indexOf('class="reading-sidebar"')<shell.indexOf('data-reader-mode="pdf"'));
+assert.ok(shell.indexOf('class="reading-sidebar"')<shell.indexOf('id="reading-mode-toggle"'));
+assert.match(shell,/<button id="reading-mode-toggle"[^>]*aria-pressed="false"/);
+assert.match(shell,/<button id="translation-view-toggle"[^>]*aria-pressed="false"/);
 assert.ok(shell.indexOf('class="reading-sidebar"')<shell.indexOf('id="reader-zoom"'));
 assert.ok(shell.includes('id="reader-research-panel"'));
 assert.ok(source.includes("listen(app,'contextmenu'"));

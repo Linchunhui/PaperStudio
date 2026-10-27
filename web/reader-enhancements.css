@@ -24,6 +24,26 @@
 .reader-settings .reader-mode-controls button{flex:1;font-size:var(--ui-font-control,.875rem)}
 .reader-setting-toggle{display:flex;align-items:center;gap:10px;min-height:44px;color:var(--reader-ink);font-size:var(--ui-font-control,.875rem);cursor:pointer}
 .reader-setting-toggle input{width:18px;height:18px;accent-color:var(--reader-accent)}
+.reader-display-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.reader-settings .reader-toggle{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:5px;text-align:left;padding:12px;white-space:normal;background:#fff;border:1px solid #80988a}
+.reader-settings .reader-toggle strong{font-size:var(--ui-font-meta,.8125rem);font-weight:400;color:var(--reader-muted)}
+.reader-settings .reader-toggle[aria-pressed=true]{background:#eaf2ec;border-color:var(--reader-accent);color:var(--reader-accent)}
+.reader-settings .reader-toggle[aria-pressed=true] strong{color:var(--reader-accent);font-weight:600}
+.reader-settings .paragraph-link-toggle{flex-direction:row;justify-content:space-between;align-items:center}
+.reader-resizer{position:relative;z-index:5;cursor:col-resize;touch-action:none;background:#f4f7f3;outline-offset:-2px}
+.reader-resizer:after{content:'';position:absolute;width:3px;height:44px;border-radius:3px;background:#a9b8af;top:calc(50% - 22px);left:3px}
+.reader-resizer:hover,.reader-resizer:focus-visible{background:#dcebe1}
+.is-resizing,.is-resizing *{cursor:col-resize!important;user-select:none!important;-webkit-user-select:none!important}
+.reflow-visual{margin:24px 0;padding:12px;border:1px solid var(--reader-border);border-radius:8px;background:#fff}
+.reflow-visual>a{display:block;cursor:zoom-in}
+.reflow-visual img,.reflow-original-page img{display:block;max-width:100%;width:100%;height:auto;object-fit:contain}
+.reflow-visual figcaption{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px;font-size:var(--ui-font-meta,.8125rem);color:var(--reader-muted)}
+.reflow-visual figcaption>span{flex:1;min-width:110px}
+.reflow-original-page{margin-top:28px;border-top:1px solid var(--reader-border);padding-top:14px}
+.reflow-original-page>summary{cursor:pointer;color:var(--reader-muted);font-size:var(--ui-font-meta,.8125rem);padding:8px 0}
+.continuous-reader .text-layer{pointer-events:auto;touch-action:pan-x pan-y;isolation:isolate}
+.continuous-reader .text-layer span{pointer-events:auto;font-weight:400;font-style:normal;letter-spacing:0;text-transform:none;text-shadow:none;-webkit-text-stroke:0;color:transparent;-webkit-text-fill-color:transparent;user-select:text;-webkit-user-select:text}
+.continuous-reader .text-layer span::selection{background:#75a6ef70;color:transparent;-webkit-text-fill-color:transparent}
 .reader-settings .reader-page-controls,.reader-settings .reader-zoom-controls{justify-content:space-between;color:var(--reader-muted)}
 .reader-settings .reader-page-controls input{width:52px}
 .reader-settings .reader-context label{width:100%;display:flex;align-items:center;gap:8px}
@@ -94,6 +114,7 @@
 @media(min-width:1700px){.continuous-reader .continuous-columns{grid-template-columns:minmax(0,1fr) 400px}}
 @media(min-width:901px) and (max-width:1100px){.continuous-reader .continuous-columns,.continuous-reader.translation-off .continuous-columns,.continuous-reader.reading-reflow .continuous-columns{grid-template-columns:minmax(0,1fr) 320px}.reader-settings>summary{padding-inline:14px}.reader-settings .reader-toolbar{padding-inline:14px}}
 @media(max-width:900px){
+  .reader-resizer{display:none}
   .continuous-reader .continuous-columns,.continuous-reader.translation-off .continuous-columns,.continuous-reader.reading-reflow .continuous-columns{display:grid;grid-template-columns:minmax(0,1fr);overflow:hidden}
   .continuous-reader .document-pane{min-width:0;border-right:0}
   .continuous-reader .reader-header{padding:10px 12px;gap:10px;min-height:68px}
@@ -123,4 +144,7 @@
   .continuous-reader .reader-finish{margin-top:auto}
   .continuous-reader .reflow-page{padding:22px 18px}
   .continuous-reader .reflow-block-actions :is(button,a){min-height:44px;display:inline-flex;align-items:center}
+}
+@media(min-width:901px){
+  .continuous-reader .continuous-columns,.continuous-reader.translation-off .continuous-columns,.continuous-reader.reading-reflow .continuous-columns{grid-template-columns:minmax(0,1fr) 10px var(--reader-sidebar-width,350px);overflow:hidden}
 }

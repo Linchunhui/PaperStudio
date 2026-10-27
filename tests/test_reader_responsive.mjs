@@ -80,3 +80,47 @@ Object.assign(context,{
 vm.runInContext(between('  function renderSidebar(', '  async function refreshNotes('),context);
 context.renderSidebar();assert.equal(aiTab.attributes.get('aria-selected'),'true');assert.equal(aiTab.tabIndex,0);assert.equal(noteTab.tabIndex,-1);assert.equal(body.attributes.get('aria-labelledby'),'reader-tab-ai');
 console.log('PASS: narrow view switching creates no provider work, keeps exact selections, safely reveals evidence and exposes tab semantics');
+
+// Execute the actual splitter handlers: drag bounds, persistence, keyboard,
+// cancellation, position retention, and mobile/browser-resize transitions.
+const resize=vm.createContext({Promise,Number,Math,Map,Set});
+vm.runInContext(between('// A page','export async function mountReader').replaceAll('export ',''),resize);
+const handlers=new Map(),frames=new Map(),stored=new Map(),attrs=new Map(),classes=new Set();
+let frameId=0,available=1200,cssWidth=0,capture=null,scroll={scrollTop:0},destinations=[];
+const win={innerWidth:1200},handle={
+ setAttribute:(k,v)=>attrs.set(k,v),getAttribute:k=>attrs.get(k),
+ setPointerCapture:id=>{capture=id;},releasePointerCapture:id=>{if(capture===id)capture=null;}
+};
+const columns={getBoundingClientRect:()=>({width:available,right:available}),style:{setProperty:(k,v)=>{assert.equal(k,'--reader-sidebar-width');cssWidth=parseFloat(v);}},classList:{add:k=>classes.add(k),remove:k=>classes.delete(k)}};
+Object.assign(resize,{
+ state:{disposed:false,narrow:false,paper:{},page:3,pageOffset:.4,pairs:new Map([[3,{get offsetHeight(){return 1000+cssWidth;}}]])},window:win,
+ qs:id=>({'#reader-resizer':handle,'.continuous-columns':columns,'#document-scroll':scroll}[id]),
+ listen:(target,type,handler)=>{handlers.set((target===win?'window:':'')+type,handler);},
+ requestAnimationFrame:fn=>{const id=++frameId;frames.set(id,fn);return id;},cancelAnimationFrame:id=>frames.delete(id),
+ localStorage:{setItem:(k,v)=>stored.set(k,v)},readPosition(){},hideSelectionMenu(){},rowTop:()=>500,
+ toolSheet:{setNarrow(){}},updateReadingLayout(){},goToPage:async(page,options)=>destinations.push({page,...options})
+});
+vm.runInContext('let sidebarDrag=null,sidebarRatio=.27,sidebarFrame;',resize);
+vm.runInContext(between('  function applySidebarWidth(', '  async function setNarrowDocument('),resize);
+vm.runInContext(between('  async function resizeReader(', '  async function setReadingDisplay('),resize);
+const flush=()=>{const work=[...frames.values()];frames.clear();for(const fn of work)fn();};
+const fire=(type,details={})=>handlers.get(type)({button:0,pointerId:1,preventDefault(){},...details});
+resize.setupSidebarResize();assert.equal(cssWidth,324);
+fire('pointerdown');assert.equal(capture,1);assert.ok(classes.has('is-resizing'));
+fire('pointermove',{clientX:400});flush();assert.equal(cssWidth,780,'sidebar cannot exceed 65%');
+assert.equal(scroll.scrollTop,500+.4*1780,'same page-relative position survives reflow');
+fire('pointerup');flush();assert.equal(capture,null);assert.ok(!classes.has('is-resizing'));
+assert.equal(Number(stored.get('paperstudio.reader.sidebar-ratio.v1')),.65);
+fire('keydown',{key:'ArrowRight'});flush();assert.equal(cssWidth,764);
+fire('keydown',{key:'Home'});flush();assert.equal(cssWidth,280);
+fire('keydown',{key:'End'});flush();assert.equal(cssWidth,780);
+fire('dblclick');flush();assert.equal(cssWidth,324);
+fire('pointerdown');fire('pointermove',{clientX:1199});fire('pointercancel');flush();assert.equal(cssWidth,280);assert.equal(capture,null);
+fire('pointerdown');fire('pointermove',{clientX:500});resize.stopSidebarResize();assert.equal(frames.size,0);assert.equal(capture,null);assert.ok(!classes.has('is-resizing'));
+// A viewport change on the same side of the breakpoint still restores position.
+available=1100;win.innerWidth=1100;const desktopResize=resize.resizeReader();flush();await desktopResize;
+assert.equal(destinations.at(-1).page,3);assert.equal(destinations.at(-1).offset,.4);
+available=600;win.innerWidth=600;const mobileResize=resize.resizeReader();flush();await mobileResize;
+assert.equal(resize.state.narrow,true);fire('pointerdown');assert.equal(capture,null);
+assert.equal(destinations.at(-1).remember,false);
+console.log('PASS: sidebar drag/keyboard bounds, width persistence, page position, cancellation, cleanup and mobile breakpoint');

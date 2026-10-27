@@ -32,9 +32,9 @@ def normal(text: str) -> str:
     return " ".join(text.split())
 
 
-def original_excerpt(source: str, quote: str) -> str | None:
+def original_excerpt(source: str, quote: str, max_chars: int = 4000) -> str | None:
     """Allow PDF whitespace normalization, never invented words or case changes."""
-    if not isinstance(quote, str) or not quote.strip() or len(quote) > 4000:
+    if not isinstance(quote, str) or not quote.strip() or len(quote) > max_chars:
         return None
     escaped = r"\s+".join(re.escape(part) for part in quote.split())
     match = re.search(escaped, source)
@@ -86,7 +86,37 @@ def _overlap(a, b):
             and min(a["y"] + a["height"], b["y"] + b["height"]) > max(a["y"], b["y"]))
 
 
-def selected_sources(paper: dict, project_id: str, selection: dict, kind: str) -> list[dict]:
+def _native_selection(paper: dict, number: int) -> tuple[str, list[dict]]:
+    """Match the native reader's spans when cached reflow has a different order.
+
+    Keep the same geometric whitespace as renderPdf. All words and anchors are
+    still extracted from the version-bound PDF, never trusted client text.
+    """
+    info = pdf.page_info(core.paper_asset_path(paper), number)
+    spans, blocks, parts = info["text"], [], []
+    for index, span in enumerate(spans):
+        parts.append(span["text"])
+        if index + 1 < len(spans):
+            following = spans[index + 1]
+            if abs(following["y"] - span["y"]) > span["font_size"] * .35:
+                parts.append("\n")
+            elif following["x"] > span["x"] + span["width"] + .7:
+                parts.append(" ")
+        # A span may be rotated inside the page; transform all four corners.
+        angle = math.radians(span["rotation"])
+        dx, dy = span["width"] * math.cos(angle), span["width"] * math.sin(angle)
+        hx, hy = -span["height"] * math.sin(angle), span["height"] * math.cos(angle)
+        xs = [span["x"], span["x"] + dx, span["x"] + hx, span["x"] + dx + hx]
+        ys = [span["y"], span["y"] + dy, span["y"] + hy, span["y"] + dy + hy]
+        x, y = max(0, min(xs)), max(0, min(ys))
+        w, h = min(info["width"], max(xs)) - x, min(info["height"], max(ys)) - y
+        rects = [{"x": x / info["width"], "y": y / info["height"],
+                  "width": w / info["width"], "height": h / info["height"]}] if w > 0 and h > 0 else []
+        blocks.append({"id": f"native-span-{index}", "text": span["text"], "rects": rects})
+    return "".join(parts), blocks
+
+
+def selected_sources(paper: dict, project_id: str, selection: dict, kind: str, *, split_text=True) -> list[dict]:
     if selection.get("source_sha") != paper["sha256"]:
         raise HTTPException(409, "原文版本已变化，请重新选择论文内容")
     page = selection.get("page")
@@ -112,7 +142,17 @@ def selected_sources(paper: dict, project_id: str, selection: dict, kind: str) -
         # Selection can span adjacent extracted blocks, but it must still be a
         # contiguous excerpt of this page's authentic reading-order text.
         text = "\n".join(b["text"] for b in blocks)
-        verified = original_excerpt(text, quote)
+        verified = original_excerpt(text, quote, max_chars=24000)
+        if verified is None:
+            # Reflow joins PDF line-break hyphens; browser selection retains
+            # the line break. Only remove an explicit end-of-line hyphen.
+            joined = re.sub(r"(?<=[A-Za-z])-\s*\n\s*(?=[a-z])", "", quote)
+            verified = original_excerpt(text, joined, max_chars=24000)
+        if verified is None and not block_id:
+            native_text, native_blocks = _native_selection(paper, page)
+            verified = original_excerpt(native_text, quote, max_chars=24000)
+            if verified is not None:
+                blocks = native_blocks
         if verified is None:
             raise HTTPException(422, "选中文字与原文不一致，请在原 PDF 中重新选择")
         matching = [b for b in blocks if normal(b["text"]) in normal(verified)
@@ -121,7 +161,7 @@ def selected_sources(paper: dict, project_id: str, selection: dict, kind: str) -
         anchor = {"id": block_id or "selection-" + digest(verified)[:16],
                   "rects": [r for b in matching for r in b.get("rects", [])]}
         return [_paper_source(paper, project_id, page, anchor, part, index)
-                for index, part in enumerate(chunks(verified))]
+                for index, part in enumerate(chunks(verified) if split_text else [verified])]
     if block_id:
         return [_paper_source(paper, project_id, page, b, part, index)
                 for b in blocks for index, part in enumerate(chunks(b["text"]))]

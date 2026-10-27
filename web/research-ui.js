@@ -79,7 +79,7 @@ export async function openResearchPanel(detail={}){
   const container=qs(detail.target||'#reader-research-panel');if(!container)throw new Error('请先打开论文或选择研究项目。');
   clearTimeout(timer);generation++;
   if(current?.container&&current.container!==container)current.container.hidden=true;
-  const same=current?.project_id===detail.project_id&&current?.paper_id===(detail.paper_id||null)&&current?.kind===(detail.kind||'qa');
+  const same=current?.project_id===detail.project_id&&current?.paper_id===(detail.paper_id||null)&&current?.kind===(detail.kind||'qa')&&JSON.stringify(current?.selection||null)===JSON.stringify(detail.selection||null);
   current={container,project_id:detail.project_id,paper_id:detail.paper_id||null,kind:detail.kind||'qa',browseOnly:!!detail.browseOnly,selection:detail.selection||null,question:detail.question??(same?current.question:''),job:same?current.job:null,history:[],error:'',knowledgeFilter:same?current.knowledgeFilter:{category:'',q:''},knowledgeItems:same?current.knowledgeItems:null};
   if(!current.project_id)throw new Error('请先选择一个研究项目。');
   container.oncompositionstart=()=>{if(current?.container===container)current.composing=true;};

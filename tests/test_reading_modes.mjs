@@ -93,3 +93,39 @@ assert.match(context.readingTranslation({status:'succeeded',result_markdown:'<im
 assert.doesNotMatch(context.readingTranslation({status:'failed',error:'<script>bad</script>'}),/<script>/);
 console.log('PASS: default untranslated modes, source block selection, precise-note isolation, late response protection, explicit paragraph POST, cache reuse, accepted-job identity and escaped results');
 
+// A native sentence uses the verified-selection endpoint, not a paragraph lookup.
+requests=[];
+const selection={side:'original',source_sha:'sha',page:1,quote:'only these words',rects:exact};
+Object.assign(context,{
+ state:{paper:{sha256:'sha'},projectId:'project',readingSequence:3,jobs:[],narrow:false},
+ isCurrentAnchor:anchor=>anchor.source_sha==='sha',
+ api:async(path,options)=>{requests.push({path,options});return {...job,selection_scope:true};}
+});
+await context.translateExactSelection(selection);
+assert.equal(context.state.readingSequence,4,'invalidate outstanding paragraph selection loads');
+assert.equal(requests[0].path,'/papers/paper/reading/translate-selection');
+assert.equal(requests[0].options.body.selected_text,selection.quote);
+assert.equal(requests[0].options.body.selected_rects,exact);
+await context.translateExactSelection(selection);assert.equal(requests.length,1);
+await assert.rejects(context.translateExactSelection({...selection,source_sha:'old'}),/重新选择/);
+assert.equal(requests.length,1);
+
+// A selected sentence still finishes when it falls out of the recent-job list.
+vm.runInContext(between('  async function refreshAcceptedReadingJobs(', '  function updateToolbar('),context);
+context.state.jobs=[];context.state.readingPages=new Map();context.state.readingPollCursor=0;
+context.api=async path=>{assert.equal(path,'/jobs/accepted');return {...job,selection_scope:true,status:'succeeded',result_markdown:'选区译文'};};
+await context.refreshAcceptedReadingJobs();context.updateReadingJobs();
+assert.equal(context.state.selectionTranslation.job.status,'succeeded');
+
+// Mixed content renders source images and text; external/unsafe assets are rejected.
+vm.runInContext(between('  function readingContentMarkup(', '  async function renderReadingPage('),context);
+context.readingBlockMarkup=b=>`<p>${context.esc(b.text)}</p>`;
+const visual={id:'visual-1',type:'table',image_url:'/api/papers/paper/pages/1.png?width=2000',width:200,height:100};
+const markup=context.readingContentMarkup({blocks,content:[{id:'first',type:'text'},visual,{...visual,id:'unsafe',image_url:'javascript:alert(1)'}]},1);
+assert.match(markup,/Original &lt;script&gt; text/);
+assert.match(markup,/<figure class="reflow-visual"/);
+assert.match(markup,/width=4000/);
+assert.match(markup,/表格讲解/);
+assert.doesNotMatch(markup,/javascript:|id="unsafe"/);
+console.log('PASS: exact sentence submission, deduplication and stale-load protection; source image/table markup');
+

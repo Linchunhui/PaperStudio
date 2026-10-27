@@ -91,6 +91,36 @@ def test_vector_svg_and_text_coordinates_on_rotated_cropped_page(client):
     assert client.get(f"/api/papers/{paper['id']}/pages/3.svg").status_code == 404
 
 
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_native_png_preserves_pdf_pixels_crop_rotation_and_source_version(client, rotation):
+    with fitz.open(stream=make_pdf(cropped=True), filetype="pdf") as doc:
+        doc[0].insert_text((80, 140), "Faux bold label", render_mode=2, border_width=.15)
+        doc[0].set_rotation(rotation)
+        original = doc.tobytes()
+    paper = upload(client, original)
+    metadata = client.get(f"/api/papers/{paper['id']}/pages/1").json()
+    url = metadata["image_url"]
+    response = client.get(url, params={"width": 920})
+    assert response.status_code == 200 and response.headers["content-type"] == "image/png"
+    assert response.headers["cache-control"].startswith("private")
+    with fitz.open(stream=original, filetype="pdf") as doc:
+        native = doc[0]
+        expected = native.get_pixmap(matrix=fitz.Matrix(920 / native.rect.width, 920 / native.rect.width), alpha=False)
+        actual = fitz.Pixmap(response.content)
+        assert actual.samples == expected.samples
+        clip = fitz.Rect(native.rect.width * .1, native.rect.height * .1, native.rect.width * .6, native.rect.height * .4)
+        scale = min(920 / clip.width, 8)
+        crop = client.get(url, params={"width": 920, "x": .1, "y": .1, "w": .5, "h": .3})
+        assert crop.status_code == 200
+        expected_crop = native.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip, alpha=False)
+        assert fitz.Pixmap(crop.content).samples == expected_crop.samples
+    assert client.get(url.replace(paper["sha256"], "0" * 64)).status_code == 409
+    assert client.get(url, params={"x": .8, "w": .3}).status_code == 422
+    assert client.get(url, params={"width": 10000}).status_code == 422
+    assert client.get(url, params={"x": "nan"}).status_code == 422
+    assert client.get(f"/api/papers/{paper['id']}/file").content == original
+
+
 def test_project_tree_cycle_rejected_and_descendant_filter(client):
     parent = project(client, "Parent")
     child = project(client, "Child", parent["id"])
@@ -331,3 +361,4 @@ def test_additive_migration_keeps_v01_papers_manual_translation_notes_and_readin
     membership = core.require_membership(paper["id"], "inbox")
     assert (membership["status"], membership["last_page"], membership["page_offset"]) == ("read", 2, 0)
     assert client.get(f"/api/papers/{paper['id']}/pages/2?side=translation").status_code == 200
+

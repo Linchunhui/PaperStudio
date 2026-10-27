@@ -125,7 +125,9 @@ def test_blank_page_and_invalid_scope_are_explicit(client, monkeypatch):
     paper = upload(client, blank=True)
     result = page(client, paper)
     assert result["blocks"] == [] and not result["has_text"]
-    assert "扫描页" in result["warnings"][0]
+    assert "原页图像" in result["warnings"][0]
+    assert result["content"][0]["type"] == "page"
+    assert client.get(result["content"][0]["image_url"]).status_code == 200
     assert client.get(f"/api/papers/{paper['id']}/pages/0/reading").status_code == 404
     assert client.get(f"/api/papers/{paper['id']}/pages/3/reading").status_code == 404
     assert client.get("/api/papers/missing/pages/1/reading").status_code == 404
@@ -287,4 +289,123 @@ def test_layout_translation_services_paragraphs_at_page_boundaries(client, monke
     assert events == ["pdf-1", "paragraph", "pdf-2"]
     assert jobs.get_job(layout["id"])["status"] == "succeeded"
     assert jobs.get_job(paragraph[0]["id"])["status"] == "succeeded"
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_reflow_retains_native_figures_tables_and_formulas(client, monkeypatch, rotation):
+    monkeypatch.setattr(ai, "complete", lambda *a: pytest.fail("reading must not invoke AI"))
+    with fitz.open() as doc:
+        native = doc.new_page(width=600, height=800)
+        native.insert_text((40, 45), "Content before the figure.")
+        pixel = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 8, 8), False)
+        pixel.clear_with(90)
+        native.insert_image(fitz.Rect(40, 80, 220, 180), pixmap=pixel)
+        native.draw_rect(fitz.Rect(40, 220, 220, 290), fill=(1, .6, .1))
+        native.insert_text((55, 255), "Faux-bold labels", render_mode=2, border_width=.15)
+        for x in (40, 140, 240):
+            native.draw_line((x, 350), (x, 450))
+        for y in (350, 400, 450):
+            native.draw_line((40, y), (240, y))
+        for x, y, word in ((50, 375, "Method"), (150, 375, "Score"), (50, 425, "Ours"), (150, 425, "98.7")):
+            native.insert_text((x, y), word)
+        native.insert_text((40, 520), "x+y=z", fontname="symb", fontsize=18)
+        native.insert_text((40, 620), "Content after the formula.")
+        native.set_cropbox(fitz.Rect(20, 20, 580, 780))
+        native.set_rotation(rotation)
+        paper = core.add_paper(doc.tobytes(), "inbox")
+    result = page(client, paper)
+    assert result == page(client, paper)
+    visuals = [item for item in result["content"] if item["type"] != "text"]
+    assert {item["type"] for item in visuals} >= {"figure", "table", "formula"}
+    assert {b["text"] for b in result["blocks"]} >= {"Content before the figure.", "Content after the formula."}
+    for visual in visuals:
+        response = client.get(visual["image_url"])
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == "image/png"
+        image = fitz.Pixmap(response.content)
+        assert image.width > 20 and image.height > 20
+        for r in visual["rects"]:
+            assert 0 <= r["x"] < r["x"] + r["width"] <= 1.000001
+            assert 0 <= r["y"] < r["y"] + r["height"] <= 1.000001
+    # Labels remain in authoritative text even when the intact graphic displays them.
+    assert any("98.7" in b["text"] for b in result["blocks"])
+    assert client.get(result["page_image_url"]).status_code == 200
+    assert client.get("/api/jobs").json() == []
+
+
+def test_visual_detection_failure_preserves_complete_page(client, monkeypatch):
+    from app import reading_layout
+    paper = upload(client)
+    monkeypatch.setattr(reading_layout, "_regions", lambda *a: (_ for _ in ()).throw(ValueError("bad drawing")))
+    result = page(client, paper)
+    assert result["visual_fallback"]
+    assert len(result["content"]) == 1 and result["content"][0]["type"] == "page"
+    assert len(result["blocks"]) == 5
+    assert client.get(result["content"][0]["image_url"]).status_code == 200
+
+
+def selection_submit(client, paper, quote="first paragraph", **overrides):
+    body = {"project_id": "inbox", "page": 1, "source_sha": paper["sha256"],
+            "selected_text": quote, "selected_rects": page(client, paper)["blocks"][1]["rects"], **overrides}
+    return client.post(f"/api/papers/{paper['id']}/reading/translate-selection", json=body)
+
+
+def test_exact_selection_translation_is_verified_cached_and_not_broadened(client, monkeypatch):
+    paper = upload(client)
+    seen = []
+    monkeypatch.setattr(ai, "complete", lambda system, source, cfg: seen.append(json.loads(source)) or "首段")
+    response = selection_submit(client, paper)
+    assert response.status_code == 202, response.text
+    first = response.json()
+    assert first["selection_scope"] and first["selection_text"] == "first paragraph"
+    assert selection_submit(client, paper).json()["id"] == first["id"]
+    assert not seen
+    assert jobs.run_one()
+    result = client.get(f"/api/jobs/{first['id']}").json()
+    assert result["status"] == "succeeded", result
+    assert result["coverage"]["scope"] == "pdf-selection"
+    assert seen[0]["paragraph_text"] == "first paragraph"
+    assert page(client, paper)["blocks"][1]["translation"] is None
+    assert selection_submit(client, paper, "first paragraph with a line break.").json()["id"] != first["id"]
+
+
+def test_invalid_native_selections_never_create_jobs(client, monkeypatch):
+    paper = upload(client)
+    monkeypatch.setattr(ai, "complete", lambda *a: pytest.fail("invalid selection called AI"))
+    for changes, status in [({"selected_text": "Invented claim"}, 422), ({"source_sha": "0" * 64}, 409),
+                            ({"page": True}, 422), ({"selected_rects": []}, 422),
+                            ({"selected_rects": [{"x": .9, "y": 0, "width": .5, "height": .2}]}, 422)]:
+        assert selection_submit(client, paper, **changes).status_code == status
+    other = client.post("/api/projects", json={"name": "Other"}).json()["id"]
+    assert selection_submit(client, paper, project_id=other).status_code == 409
+    assert client.get("/api/jobs").json() == []
+
+
+def test_native_selection_survives_reflow_order_and_line_hyphen_changes(client, monkeypatch):
+    paper = upload(client)
+    # BabelDOC/native reflow can legitimately differ in segmentation/order from
+    # the PDF span layer. Verification falls back to authentic PDF text only.
+    original_extract = reading._extract
+    blocks = original_extract(paper, 1)
+    monkeypatch.setattr(reading, "_extract", lambda *a: list(reversed(blocks)))
+    quote = "A paper heading\nLeft first paragraph\nwith a line break."
+    snapshot = reading.selection_snapshot(paper, 1, paper["sha256"], quote, blocks[1]["rects"])
+    assert " ".join(snapshot["text"].split()) == " ".join(quote.split())
+    assert snapshot["rects"]
+    monkeypatch.setattr(reading, "_extract", original_extract)
+    with fitz.open() as doc:
+        native = doc.new_page()
+        native.insert_text((40, 60), "Self-improve-\nment needs evidence.")
+        hyphen_paper = core.add_paper(doc.tobytes(), "inbox")
+    snapshot = reading.selection_snapshot(hyphen_paper, 1, hyphen_paper["sha256"],
+                                          "improve-\nment needs evidence.", [{"x": .05, "y": .03, "width": .6, "height": .2}])
+    assert snapshot["text"] == "improvement needs evidence."
+    with fitz.open() as doc:
+        native = doc.new_page()
+        native.insert_textbox((40, 40, 550, 740), "electroencephalography " * 180, fontsize=9)
+        long_paper = core.add_paper(doc.tobytes(), "inbox")
+    block = reading._extract(long_paper, 1)[0]
+    assert len(block["text"]) > 2400
+    snapshot = reading.selection_snapshot(long_paper, 1, long_paper["sha256"], block["text"], block["rects"])
+    assert snapshot["text"] == block["text"], "Citation chunk boundaries must not split translated words"
 
