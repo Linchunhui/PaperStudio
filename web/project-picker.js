@@ -55,7 +55,7 @@ export function openProjectPicker({item, api, esc, safeURL, toast, projectId, do
   void (async () => {
     try {
       const response = await api('/projects'); if (closed) return;
-      const projects = (Array.isArray(response) ? response : response.items || response.projects || []).filter(p => p.can_edit !== false);
+      const projects = (Array.isArray(response) ? response : response.items || response.projects || []).filter(p => p.can_edit !== false && p.id !== 'corpus' && !/^批量成果/.test(p.name));
       const byId = new Map(projects.map(p => [p.id,p]));
       const name = p => {const names = [], seen = new Set(); while(p && !seen.has(p.id)){seen.add(p.id);names.unshift(p.name);p=byId.get(p.parent_id);} return names.join(' / ');};
       select.innerHTML = projects.map(p => `<option value="${esc(p.id)}">${esc(name(p))}</option>`).join('');

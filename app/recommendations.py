@@ -12,7 +12,7 @@ from .recommendation_content import CandidateProvider, RetrievalContext, present
 from .recommendation_profiles import get_profile
 
 logger = logging.getLogger(__name__)
-STRATEGY_VERSION = "catalog-hybrid-v1"
+STRATEGY_VERSION = "catalog-hybrid-v2-authors"
 MAX_CANDIDATES = 480
 SNAPSHOT_MINUTES = 15
 
@@ -88,6 +88,9 @@ def _retrieve(con, profile, category_id, topic_id, providers):
         if values:
             condition = f"EXISTS(SELECT 1 FROM {table} x WHERE x.paper_id=p.id AND x.name COLLATE NOCASE IN (" + ",".join("?" for _ in values) + "))"
             add(condition, values, channel, 120)
+    if profile.get("authors"):
+        condition, params = _facet_condition("author", profile["authors"])
+        add(condition, params, "author", 120)
     if profile["keywords"]:
         parts, params = [], []
         for term in profile["keywords"]:
@@ -111,7 +114,7 @@ def _retrieve(con, profile, category_id, topic_id, providers):
             # Provider errors must not take reading or the rule fallback down.
             degraded.append(provider.name)
             logger.warning("Recommendation candidate provider unavailable: %s", provider.name)
-    has_preferences = any(profile[key] for key in ("category_ids", "topic_ids", "keywords", "institutions", "conferences"))
+    has_preferences = any(profile[key] for key in ("category_ids", "topic_ids", "keywords", "institutions", "conferences", "authors"))
     fallback = "no_matches" if has_preferences and not candidates else "no_preferences" if not has_preferences else None
     if fallback:
         # Preserve explicit page filters even when the preference pool is empty.
@@ -138,7 +141,8 @@ def _rank(item, profile, channels, semantic, at):
     structured_keywords = [term for term in profile["keywords"] if re.search(taxonomy._expression(term), structured_text)]
     institutions = [value for value in item.get("institutions", []) if value.casefold() in {v.casefold() for v in profile["institutions"]}]
     conferences = sorted({c["conference"] for c in item.get("conferences", []) if c["conference"].casefold() in {v.casefold() for v in profile["conferences"]}})
-    relevance = max(1.0 if topic_labels else 0, .72 if category_labels else 0, .9 if keywords else 0,
+    authors = [v for v in item.get("authors", []) if v.casefold() in {a.casefold() for a in profile.get("authors", [])}]
+    relevance = max(.9 if authors else 0, 1.0 if topic_labels else 0, .72 if category_labels else 0, .9 if keywords else 0,
                     .85 if institutions else 0, .65 if conferences else 0, .8 if structured_keywords else 0, semantic or 0)
     freshness, age_days = _freshness(item, at, profile["freshness_days"])
     votes = item.get("hf_upvotes")
@@ -154,6 +158,8 @@ def _rank(item, profile, channels, semantic, at):
         reasons.append("研究问题或方法匹配：" + "、".join(structured_keywords[:3]))
     if institutions:
         reasons.append("匹配关注机构标签：" + "、".join(institutions[:2]))
+    if authors:
+        reasons.append("来自关注作者：" + "、".join(authors[:3]))
     if conferences:
         reasons.append("来自关注会议：" + "、".join(conferences[:2]))
     if semantic is not None:
@@ -225,8 +231,8 @@ def recommend(*, limit=24, cursor="", category_id="", topic_id="", providers: tu
             row = con.execute("SELECT data FROM catalog_papers WHERE id=? AND NOT EXISTS(SELECT 1 FROM recommendation_dismissals WHERE user_id=? AND catalog_paper_id=?)", (entry["id"], user_id, entry["id"])).fetchone()
             if row:
                 item = json.loads(row[0])
-                # Keep provenance, raw source records and large abstracts out of feed responses.
-                public = {key: item.get(key) for key in ("id", "title", "url", "pdf_url", "resolve", "published_at", "year", "institutions", "conferences", "classification", "source_ids", "hf_upvotes")}
+                # Keep provenance and raw source records out of feed responses.
+                public = {key: item.get(key) for key in ("id", "title", "url", "pdf_url", "resolve", "published_at", "year", "authors", "institutions", "conferences", "classification", "source_ids", "hf_upvotes", "github_stars", "github_url")}
                 items.append({**public, **presentation(con, item), "abstract_preview": (item.get("abstract") or "")[:500],
                               "reasons": entry["reasons"], "position": offset, "score": entry["score"],
                               "score_signals": entry["score_signals"], "channels": entry["channels"]})

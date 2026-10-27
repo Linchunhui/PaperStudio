@@ -18,6 +18,7 @@ import fitz
 from fastapi import HTTPException
 
 from . import ai, core, pdf, reading
+from .selection_matching import selection_excerpt
 
 CHUNK_CHARS = 2400
 VERSION = "located-evidence-v1"
@@ -142,19 +143,27 @@ def selected_sources(paper: dict, project_id: str, selection: dict, kind: str, *
         # Selection can span adjacent extracted blocks, but it must still be a
         # contiguous excerpt of this page's authentic reading-order text.
         text = "\n".join(b["text"] for b in blocks)
-        verified = original_excerpt(text, quote, max_chars=24000)
-        if verified is None:
-            # Reflow joins PDF line-break hyphens; browser selection retains
-            # the line break. Only remove an explicit end-of-line hyphen.
-            joined = re.sub(r"(?<=[A-Za-z])-\s*\n\s*(?=[a-z])", "", quote)
-            verified = original_excerpt(text, joined, max_chars=24000)
+        verified = selection_excerpt(text, quote)
+        native_text, native_blocks = "", []
         if verified is None and not block_id:
             native_text, native_blocks = _native_selection(paper, page)
-            verified = original_excerpt(native_text, quote, max_chars=24000)
+            verified = selection_excerpt(native_text, quote)
             if verified is not None:
                 blocks = native_blocks
         if verified is None:
-            raise HTTPException(422, "选中文字与原文不一致，请在原 PDF 中重新选择")
+            # Minor text-layer edits may be recovered only inside the selected
+            # geometry (or a verified reflow block), never across a whole page.
+            for candidates in (blocks, native_blocks):
+                nearby = [b for b in candidates if block_id or
+                          any(_overlap(a, r) for a in b.get("rects", []) for r in rects)]
+                if not nearby:
+                    continue
+                verified = selection_excerpt("\n".join(b["text"] for b in nearby), quote, allow_edits=True)
+                if verified is not None:
+                    blocks = nearby
+                    break
+        if verified is None:
+            raise HTTPException(422, "未能定位这段原文，请重新选择；扫描文字可通过右键框选后解释")
         matching = [b for b in blocks if normal(b["text"]) in normal(verified)
                     or normal(verified) in normal(b["text"])
                     or any(_overlap(a, r) for a in b.get("rects", []) for r in rects)]
@@ -204,12 +213,16 @@ def _rows_if_table(con, table: str, query: str, args=()):
 
 
 def collect(project_id: str, paper_id: str | None, selection: dict | None, kind: str,
-            cancelled=lambda: False, progress=lambda *args: None):
+            cancelled=lambda: False, progress=lambda *args: None, *, paper_ids=None):
     """Scan all permitted project papers before selecting model context."""
     from . import auth
     project_id = core.get_project(project_id)["id"]
     user_id = auth.current_user_id()
-    if paper_id:
+    if paper_ids is not None:
+        for identifier in paper_ids:
+            core.require_membership(identifier, project_id)
+        papers = [core.get_paper(identifier) for identifier in paper_ids]
+    elif paper_id:
         core.require_membership(paper_id, project_id)
         papers = [core.get_paper(paper_id)]
     else:
@@ -258,6 +271,8 @@ def collect(project_id: str, paper_id: str | None, selection: dict | None, kind:
                     sources.extend(block_sources)
             except HTTPException as exc:
                 failures.append({"paper_id": paper["id"], "page": page, "reason": str(exc.detail)})
+        if kind == "compare":
+            continue
         for note in core.annotation_list(paper["id"], project_id):
             if not note.get("is_current", True):
                 continue
@@ -273,7 +288,7 @@ def collect(project_id: str, paper_id: str | None, selection: dict | None, kind:
                                 "annotation_id": note["id"], "source_version": version,
                                 "visibility": note.get("visibility", "private"),
                                 "owner_id": note.get("owner_id", note.get("author_id", paper.get("owner_id")))})
-    if not selection:
+    if not selection and kind != "compare":
         with core.db() as con:
             rows = _rows_if_table(con, "jobs", "SELECT * FROM jobs WHERE project_id=? AND status='succeeded'", (project_id,))
             research_rows = _rows_if_table(con, "research_jobs", "SELECT * FROM research_jobs WHERE project_id=? AND status='succeeded'", (project_id,))
@@ -310,7 +325,7 @@ def collect(project_id: str, paper_id: str | None, selection: dict | None, kind:
                                 "generated_job_id": row["id"], "generated_table": origin,
                                 "source_version": version, "visibility": row.get("visibility", "private"),
                                 "owner_id": row.get("owner_id")})
-    coverage = {"scope": "selection" if selection else "paper" if paper_id else "project",
+    coverage = {"scope": "comparison" if paper_ids is not None else "selection" if selection else "paper" if paper_id else "project",
                 "total_papers": len(papers), "scanned_papers": len(papers), "total_pages": total_pages,
                 "scanned_pages": scanned_pages, "empty_text_pages": empty_pages, "failed_pages": failures,
                 "available_chunks": len(sources), "paper_manifest": manifest,
@@ -340,6 +355,8 @@ def retrieve(sources: list[dict], question: str, budget: int, kind: str):
     query = question + " " + " ".join(v for k, v in aliases.items() if k in question)
     if kind == "knowledge":
         query += " abstract introduction method experiment dataset limitation"
+    if kind == "compare":
+        query += " problem method architecture experiment dataset evaluation results limitations baseline performance"
     if kind == "lineage":
         query += " references bibliography related work previous prior"
     tokens = [Counter(terms(s["text"])) for s in sources]

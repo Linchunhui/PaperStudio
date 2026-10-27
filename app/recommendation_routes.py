@@ -17,6 +17,7 @@ class ProfileInput(BaseModel):
     category_ids: list[Short] = Field(default_factory=list, max_length=30)
     topic_ids: list[Short] = Field(default_factory=list, max_length=100)
     institutions: list[Short] = Field(default_factory=list, max_length=100)
+    authors: list[Short] = Field(default_factory=list, max_length=100)
     conferences: list[Short] = Field(default_factory=list, max_length=100)
     keywords: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(default_factory=list, max_length=20)
     freshness_days: int = Field(default=30, ge=1, le=365)
@@ -25,7 +26,7 @@ class ProfileInput(BaseModel):
 
 class FollowInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    kind: Literal["institution", "conference"]
+    kind: Literal["institution", "conference", "author", "category", "topic"]
     value: Short
     enabled: bool
 
@@ -84,7 +85,8 @@ def options():
     with core.db() as con:
         institutions = [r[0] for r in con.execute("SELECT DISTINCT name FROM catalog_institutions ORDER BY name")]
         conferences = [r[0] for r in con.execute("SELECT DISTINCT name FROM catalog_conferences ORDER BY name")]
-    return {"taxonomy": taxonomy.snapshot(), "institutions": institutions, "conferences": conferences}
+        presentations = [r[0] for r in con.execute("SELECT DISTINCT presentation FROM catalog_conferences WHERE presentation!='' ORDER BY presentation")]
+    return {"taxonomy": taxonomy.snapshot(), "institutions": institutions, "conferences": conferences, "presentations": presentations}
 
 
 @router.get("/recommendations")

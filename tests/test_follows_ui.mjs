@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {esc,safeURL,settle,root,paperRuntime,load,profile,taxonomy} from './ui-harness.mjs';
+const c=paperRuntime();load(c,'follows-ui.js');const ui=root(),requests=[],browse=[];let p={...profile,topic_ids:['document.ocr'],institutions:['Lab A'],authors:['Alice']};
+const api=async(path,r={})=>{requests.push({path,r});if(path==='/recommendations/options')return{taxonomy};if(r.method==='PATCH')p={...p,version:p.version+1,authors:[]};if(r.method==='PUT')p={...r.body,version:p.version+1};return p;};
+const panel=c.mountFollows(ui.root,{api,esc,safeURL,toast(){},onProfile(){},onBrowse:(...args)=>browse.push(args),legacy:{}});await settle();
+assert.match(ui.root.innerHTML,/文字识别/);assert.match(ui.root.innerHTML,/Alice/);assert.match(ui.root.innerHTML,/Lab A/);
+await ui.click({followBrowse:'institution',value:'Lab A'});assert.deepEqual(browse[0],['institution','Lab A']);
+await ui.click({followRemove:'author',value:'Alice'});assert.deepEqual(p.topic_ids,['document.ocr']);assert.deepEqual(p.institutions,['Lab A']);assert.deepEqual(p.authors,[]);
+await ui.submit('follows-preferences',{keywords:'OCR, VQA',freshness_days:'7'});const body=requests.find(r=>r.r.method==='PUT').r.body;assert.deepEqual(Array.from(body.topic_ids),['document.ocr']);assert.deepEqual(Array.from(body.institutions),['Lab A']);assert.equal(body.freshness_days,7);assert.deepEqual(Array.from(body.keywords),['OCR','VQA']);
+panel.dispose();console.log('PASS: account follows displayed, category navigation/removal, keyword edit preserves unrelated preferences and disposal');

@@ -1,3 +1,4 @@
+import {mathText, mathMarkdown, sourceSelection} from './math.js';
 import {api,esc,qs,list,toast,memberships,statuses,jobLabels,jobStatuses,icons,authSession} from './app.js';
 import {insightMarkup} from './paper-insights.js';
 
@@ -348,7 +349,7 @@ export async function mountReader({paperId,projectId}) {
   }
   function readingTranslation(job) {
     if(!job)return '<span class="muted">尚未翻译。可按需翻译此段或本页。</span>';
-    if(job.status==='succeeded')return `<div class="paragraph-result" lang="zh-CN">${esc(job.result_markdown||'译文为空，请重试。')}</div>`;
+    if(job.status==='succeeded')return `<div class="paragraph-result" lang="zh-CN">${mathText(job.result_markdown||'译文为空，请重试。')}</div>`;
     if(['queued','running'].includes(job.status))return `<span class="paragraph-working">${job.status==='queued'?'等待翻译…':'正在翻译此段…'}</span>`;
     return `<span class="paragraph-error">${esc(job.error||'此段翻译未完成，可重新提交。')}</span>`;
   }
@@ -357,7 +358,7 @@ export async function mountReader({paperId,projectId}) {
   }
   function readingBlockMarkup(block,page) {
     const job=blockTranslation(block,page),active=state.readingFocus?.page===page&&state.readingFocus?.block_id===block.id;
-    return `<section class="reflow-block ${block.type==='heading'?'reflow-heading':''} ${active?'selected':''}" data-block-id="${esc(block.id)}" data-block-page="${page}"><div class="reflow-source" lang="en" tabindex="0" role="button" aria-label="选中段落，在右侧按需翻译">${esc(block.text)}</div><div class="reflow-block-actions"><button class="text-button" data-reading-block="${esc(block.id)}" data-reading-page="${page}">选中段落</button><button class="text-button" data-reading-pdf="${page}">原 PDF ↗</button><button class="text-button bilingual-only" data-reading-translate="${esc(block.id)}" data-reading-page="${page}">${job?.status==='succeeded'?'重新查看译文':'翻译此段'}</button></div><div class="reflow-translation bilingual-only ${job?'':'no-block-translation'}" data-translation-key="${esc(job?.id||'')}:${esc(job?.status||'')}">${readingTranslation(job)}</div></section>`;
+    return `<section class="reflow-block ${block.type==='heading'?'reflow-heading':''} ${active?'selected':''}" data-block-id="${esc(block.id)}" data-block-page="${page}"><div class="reflow-source" lang="en" tabindex="0" role="button" aria-label="选中段落，在右侧按需翻译">${mathText(block.text)}</div><div class="reflow-block-actions"><button class="text-button" data-reading-block="${esc(block.id)}" data-reading-page="${page}">选中段落</button><button class="text-button" data-reading-pdf="${page}">原 PDF ↗</button><button class="text-button bilingual-only" data-reading-translate="${esc(block.id)}" data-reading-page="${page}">${job?.status==='succeeded'?'重新查看译文':'翻译此段'}</button></div><div class="reflow-translation bilingual-only ${job?'':'no-block-translation'}" data-translation-key="${esc(job?.id||'')}:${esc(job?.status||'')}">${readingTranslation(job)}</div></section>`;
   }
   function readingContentMarkup(data,page) {
     if(!Array.isArray(data.content))return data.blocks.map(block=>readingBlockMarkup(block,page)).join('');
@@ -403,7 +404,7 @@ export async function mountReader({paperId,projectId}) {
       existing.source_sha===version.source_sha&&(existing.translation_run_id||null)===(version.translation_run_id||state.translations.active_run_id||null);
     target.hidden=!valid;host.classList.toggle('has-page-translation',valid&&existing.status==='ready');
     if(!valid)return;
-    target.innerHTML=`<div class="existing-translation-heading"><strong>已有译文 · 第 ${page} 页</strong><span>按页对应，尚无可靠的逐段对齐</span></div>${existing.status==='ready'?`<div class="existing-translation-text" lang="zh-CN">${esc(existing.text||'')}</div>`:'<p class="muted">已有译文 PDF 的这一页没有可提取文字，可切回 PDF 阅读。</p>'}`;
+    target.innerHTML=`<div class="existing-translation-heading"><strong>已有译文 · 第 ${page} 页</strong><span>按页对应，尚无可靠的逐段对齐</span></div>${existing.status==='ready'?`<div class="existing-translation-text" lang="zh-CN">${mathText(existing.text||'')}</div>`:'<p class="muted">已有译文 PDF 的这一页没有可提取文字，可切回 PDF 阅读。</p>'}`;
   }
   async function selectReadingBlock(page,probe) {
     const sequence=++state.readingSequence,sha=state.paper.sha256;
@@ -423,10 +424,10 @@ export async function mountReader({paperId,projectId}) {
     const panel=qs('#paragraph-translation-panel');if(!panel)return;
     const selected=state.selectionTranslation;
     if(state.readingPanelOpen&&selected&&selected.anchor.source_sha===state.paper.sha256){
-      panel.hidden=false;const job=selected.job;
-      const key=JSON.stringify([selected.anchor.quote,job?.id,job?.status,job?.result_markdown,job?.error,selected.busy,selected.error]);
+      panel.hidden=false;const job=selected.job,sourceText=job?.selection_text||selected.anchor.quote;
+      const key=JSON.stringify([sourceText,job?.id,job?.status,job?.result_markdown,job?.error,selected.busy,selected.error]);
       if(panel.dataset.renderKey===key)return;panel.dataset.renderKey=key;
-      panel.innerHTML=`<div class="paragraph-panel-heading"><strong>选区翻译 <span>第 ${selected.anchor.page} 页</span></strong><button class="button small" data-reader-action="close-reading-panel" aria-label="关闭选区翻译">收起</button></div><blockquote>${esc(selected.anchor.quote)}</blockquote><div class="paragraph-panel-result">${selected.error?`<span class="paragraph-error">${esc(selected.error)}</span>`:selected.busy?'正在提交选区…':readingTranslation(job)}</div><div class="paragraph-panel-actions"><button class="button small" data-reader-action="translate-selection" ${selected.busy||['queued','running'].includes(job?.status)?'disabled':''}>${job?.status==='succeeded'?'查看已缓存译文':'翻译选区'}</button><button class="button small" data-reader-action="ask-selection">针对选区提问</button>${['queued','running'].includes(job?.status)?`<button class="button small" data-job-cancel="${esc(job.id)}">取消</button>`:''}</div><p class="paragraph-panel-note">仅翻译上方选中的原文，不扩大到整段或整页。</p>`;
+      panel.innerHTML=`<div class="paragraph-panel-heading"><strong>选区翻译 <span>第 ${selected.anchor.page} 页</span></strong><button class="button small" data-reader-action="close-reading-panel" aria-label="关闭选区翻译">收起</button></div><blockquote>${esc(sourceText)}</blockquote><div class="paragraph-panel-result">${selected.error?`<span class="paragraph-error">${esc(selected.error)}</span>`:selected.busy?'正在提交选区…':readingTranslation(job)}</div><div class="paragraph-panel-actions"><button class="button small" data-reader-action="translate-selection" ${selected.busy||['queued','running'].includes(job?.status)?'disabled':''}>${job?.status==='succeeded'?'查看已缓存译文':'翻译选区'}</button><button class="button small" data-reader-action="ask-selection">针对选区提问</button>${['queued','running'].includes(job?.status)?`<button class="button small" data-job-cancel="${esc(job.id)}">取消</button>`:''}</div><p class="paragraph-panel-note">${sourceText!==selected.anchor.quote?'已按 PDF 原文还原选中文字；仅翻译所选内容。':'仅翻译所选内容。'}</p>`;
       return;
     }
     const focus=state.readingFocus,block=focus&&state.readingPages.get(focus.page)?.blocks.find(b=>b.id===focus.block_id);
@@ -821,7 +822,7 @@ export async function mountReader({paperId,projectId}) {
     }
     const section=element.closest('[data-block-id]'),page=Number(section?.dataset.blockPage);
     const block=state.readingPages.get(page)?.blocks.find(b=>b.id===section?.dataset.blockId);
-    const quote=native.toString().trim();
+    const quote=sourceSelection(range);
     if(!block||!quote)return false;
     if(quote.length>10000){paragraphHint('一次请选择不超过 10,000 个字符。');return true;}
     const rects=validParagraphRects(block.rects);
@@ -996,19 +997,11 @@ export async function mountReader({paperId,projectId}) {
     const sorted=[...state.notes].sort((a,b)=>Number(a.page)-Number(b.page)||(a.created_at||'').localeCompare(b.created_at||''));
     return `${composer()}<div class="notes-section-heading"><h2>项目笔记 <span>${state.notes.length}</span></h2><a class="text-button" href="/api/papers/${pid}/notes.md?project_id=${encodeURIComponent(state.projectId)}" download>导出 Markdown ↓</a></div><div class="note-list">${sorted.map(n=>{
       const editable=n.can_edit!==false,versions=state.noteVersions.get(n.id),author=typeof n.author==='object'?n.author?.display_name||n.author?.username:n.author;
-      return `<article class="note-card"><div class="note-card-meta"><button class="quote-location" data-note-jump="${esc(n.id)}">${n.side==='translation'?'译文':'原文'} · 第 ${n.page} 页 ↗</button><span class="small muted">${isCurrentAnchor(n)?'已保存':'旧版本批注'}</span></div><div class="note-authorship">${esc(author||'我')} · ${n.visibility==='shared'?'项目共享':'仅自己'} · v${Number(n.version)||1}</div><button class="note-quote ${esc(n.color||'yellow')}" data-note-jump="${esc(n.id)}">${esc(n.quote)}</button>${n.note?`<p class="note-body">${esc(n.note)}</p>`:'<p class="note-body muted">仅高亮，还没有补充个人笔记。</p>'}<div class="note-actions">${editable?`<button class="text-button" data-note-edit="${esc(n.id)}">编辑</button><button class="text-button" data-note-summary="${esc(n.id)}">提炼</button>`:''}<button class="text-button" data-note-versions="${esc(n.id)}">修改记录</button>${editable?`<button class="text-button danger" data-note-delete="${esc(n.id)}">删除</button>`:''}</div>${versions?`<details class="note-version-history" open><summary>历史版本 (${versions.length})</summary>${versions.map(v=>`<article><span>v${Number(v.version)||1} · ${esc(v.updated_at||v.created_at||'')} · ${esc(v.editor||'')}</span><p>${esc(v.content?.note||v.note||'仅高亮')}</p><small>${v.visibility==='shared'?'项目共享':'仅自己'}</small></article>`).join('')}</details>`:''}</article>`;
+      return `<article class="note-card"><div class="note-card-meta"><button class="quote-location" data-note-jump="${esc(n.id)}">${n.side==='translation'?'译文':'原文'} · 第 ${n.page} 页 ↗</button><span class="small muted">${isCurrentAnchor(n)?'已保存':'旧版本批注'}</span></div><div class="note-authorship">${esc(author||'我')} · ${n.visibility==='shared'?'项目共享':'仅自己'} · v${Number(n.version)||1}</div><button class="note-quote ${esc(n.color||'yellow')}" data-note-jump="${esc(n.id)}">${esc(n.quote)}</button>${n.note?`<p class="note-body">${mathText(n.note)}</p>`:'<p class="note-body muted">仅高亮，还没有补充个人笔记。</p>'}<div class="note-actions">${editable?`<button class="text-button" data-note-edit="${esc(n.id)}">编辑</button><button class="text-button" data-note-summary="${esc(n.id)}">提炼</button>`:''}<button class="text-button" data-note-versions="${esc(n.id)}">修改记录</button>${editable?`<button class="text-button danger" data-note-delete="${esc(n.id)}">删除</button>`:''}</div>${versions?`<details class="note-version-history" open><summary>历史版本 (${versions.length})</summary>${versions.map(v=>`<article><span>v${Number(v.version)||1} · ${esc(v.updated_at||v.created_at||'')} · ${esc(v.editor||'')}</span><p>${esc(v.content?.note||v.note||'仅高亮')}</p><small>${v.visibility==='shared'?'项目共享':'仅自己'}</small></article>`).join('')}</details>`:''}</article>`;
     }).join('')||'<p class="empty-notes">还没有笔记。从一处划线开始。</p>'}</div>`;
   }
-  function markdown(text){
-    return String(text||'').split('\n').map(line=>{
-      const safe=esc(line).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
-      if(/^###\s/.test(line))return `<h4>${safe.replace(/^###\s/,'')}</h4>`;
-      if(/^##\s/.test(line))return `<h3>${safe.replace(/^##\s/,'')}</h3>`;
-      if(/^#\s/.test(line))return `<h2>${safe.replace(/^#\s/,'')}</h2>`;
-      if(/^[-*]\s/.test(line))return `<p class="markdown-bullet">${safe.replace(/^[-*]\s/,'')}</p>`;
-      return line.trim()?`<p>${safe}</p>`:'<div class="markdown-space"></div>';
-    }).join('');
-  }
+  function markdown(text){ return mathMarkdown(text); }
+
   function aiArea(){
     const current=state.jobs.find(j=>j.id===state.selectedJob)||state.jobs[0];
     return `<details class="reader-legacy-results"><summary>已保存的阅读成果与任务</summary><div class="notes-section-heading"><h2>任务与成果</h2><button class="text-button" data-reader-action="refresh-jobs">刷新</button></div><div class="job-history">${state.jobs.map(j=>`<button class="job-history-row ${current?.id===j.id?'active':''}" data-job-select="${esc(j.id)}"><span>${esc(jobLabels[j.kind]||j.kind)}</span><small class="job-state ${esc(j.status)}">${esc(jobStatuses[j.status]||j.status)}</small></button>`).join('')||'<p class="empty-notes">选择一个阅读任务，完成的内容会保存在这里。</p>'}</div>${current?`<article class="job-detail"><div class="job-detail-heading"><strong>${esc(jobLabels[current.kind]||current.kind)}</strong><span class="pill">${esc(jobStatuses[current.status]||current.status)}</span></div>${current.stage?`<p class="job-stage">${esc(current.stage)}</p>`:''}${current.error?`<div class="error-panel compact">${esc(current.error)}</div>`:''}${current.result_markdown?`<div class="ai-markdown">${markdown(current.result_markdown)}</div><button class="button small" data-job-download="${esc(current.id)}">导出这份结果 ↓</button>`:current.status==='succeeded'?'<p class="small muted">任务已完成。全文翻译可在中间一栏阅读。</p>':'<p class="small muted">摘要在任务完成后显示；译文会在每页完成后直接填入左侧阅读区。</p>'}<div class="job-detail-actions">${(current.can_share===true||(current.visibility==='shared'&&current.can_edit===true))&&current.status==='succeeded'?`<button class="text-button" data-job-share="${esc(current.id)}" data-job-visibility="${current.visibility==='shared'?'private':'shared'}">${current.visibility==='shared'?'设为仅自己':'共享到当前项目'}</button>`:''}${current.can_edit!==false&&['queued','running'].includes(current.status)?`<button class="text-button danger" data-job-cancel="${esc(current.id)}">取消任务</button>`:''}${current.can_edit!==false&&['failed','interrupted','cancelled'].includes(current.status)?`<button class="button small" data-job-retry="${esc(current.id)}">重新执行</button>`:''}</div></article>`:''}</details>`;

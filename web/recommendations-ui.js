@@ -1,7 +1,7 @@
 import {insightMarkup} from './paper-insights.js';
 // Account preferences and a catalog feed. Dependencies come from the workspace
 // so this module can be mounted/disposed without a second global event owner.
-export const preferenceFields = ['category_ids', 'topic_ids', 'institutions', 'conferences', 'keywords'];
+export const preferenceFields = ['category_ids', 'topic_ids', 'institutions', 'conferences', 'authors', 'keywords'];
 export function profileBody(profile) {
   return Object.fromEntries([...preferenceFields.map(key => [key, profile[key] || []]),
     ['freshness_days', profile.freshness_days || 30], ['expected_version', profile.version]]);

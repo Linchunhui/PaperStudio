@@ -405,6 +405,29 @@ def _rank(items, interests):
     return sorted(items, key=lambda x: (x["score_signals"]["rule_score"], x.get("published_at") or ""), reverse=True)
 
 
+def _catalog_presentation(items):
+    from . import catalog, core
+    from .recommendation_content import presentation
+    with core.db() as con:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE name='catalog_aliases'").fetchone():
+            return items
+        enriched = []
+        for item in items:
+            try:
+                identifier = catalog._arxiv(item.get("arxiv_id"))
+            except ValueError:
+                identifier = None
+            row = con.execute("SELECT p.data FROM catalog_aliases a JOIN catalog_papers p ON p.id=a.paper_id WHERE a.alias=?", ("arxiv:" + identifier,)).fetchone() if identifier else None
+            if row:
+                paper = json.loads(row[0])
+                content = presentation(con, paper)
+                item = {**item, "catalog_paper_id": paper["id"], **content,
+                        "abstract": content["abstract"] or item.get("snippet", ""),
+                        **{key: paper.get(key) for key in ("institutions", "conferences", "github_stars", "github_url", "hf_upvotes")}}
+            enriched.append(item)
+    return enriched
+
+
 async def search(query: str, scope: str, page: int, direction: str = "", topic: str = "") -> dict:
     if scope == "web":
         _search_settings()  # Missing configuration is an actionable HTTP 409.
@@ -414,7 +437,7 @@ async def search(query: str, scope: str, page: int, direction: str = "", topic: 
     else:
         fetcher = lambda: _arxiv(query, page)
     items, status = await _load(scope, fetcher, query=query, page=page)
-    items, facets = direction_view(_deduplicate(items))
+    items, facets = direction_view(_catalog_presentation(_deduplicate(items)))
     hierarchy = taxonomy.item_snapshot(items)
     has_more = bool(items)
     items = [item for item in items if taxonomy.matches(item, direction, topic)]

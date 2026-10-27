@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+export const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export const safeURL=value=>{try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)?u.href:'';}catch{return '';}};
+export class Fields{constructor(form){this.data=form?.data||{};}get(k){return this.data[k]??'';}getAll(k){return this.data[k]||[];}}
+export const settle=async()=>{for(let i=0;i<80;i++)await Promise.resolve();};
+export function runtime(extra={}){return vm.createContext({console,URL,URLSearchParams,AbortController,FormData:Fields,setTimeout,clearTimeout,...extra});}
+export function load(context,file){const text=fs.readFileSync(new URL('../web/'+file,import.meta.url),'utf8'),names=[...text.matchAll(/export (?:async )?function (\w+)|export const (\w+)/g)].map(m=>m[1]||m[2]);vm.runInContext('(function(){'+text.replace(/^import .*$/gm,'').replace(/^export /gm,'')+';Object.assign(globalThis,{'+names.join(',')+'});})()',context);}
+export function root(){const nodes=new Map(),handlers=new Map();const node=key=>{if(!nodes.has(key))nodes.set(key,{innerHTML:'',textContent:'',isConnected:true,disabled:false,attributes:{},focus(){},setAttribute(k,v){this.attributes[k]=v;}});return nodes.get(key);};const value={innerHTML:'',isConnected:true,contains(){return true;},querySelector:node,querySelectorAll(){return [];},addEventListener(k,v){handlers.set(k,v);},removeEventListener(k){handlers.delete(k);}};return {root:value,node,handlers,click:async data=>{await handlers.get('click')({stopPropagation(){},target:{closest:()=>({dataset:data,isConnected:true,disabled:false,hasAttribute(name){return name.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase()) in data;}})}});await settle();},submit:async(id,data)=>{await handlers.get('submit')({preventDefault(){},stopPropagation(){},target:{id,data,querySelector:()=>({disabled:false,isConnected:true})}});await settle();}};}
+export const profile={version:1,configured:true,category_ids:[],topic_ids:[],institutions:[],authors:[],conferences:[],keywords:[],freshness_days:30};
+export const taxonomy={categories:[{id:'document',name:'OCR / 文档智能',topics:[{id:'document.ocr',name:'文字识别'},{id:'document.layout',name:'版面分析'}]},{id:'multimodal',name:'多模态',topics:[{id:'multimodal.vqa',name:'视觉问答'}]}]};
+export function paperRuntime(){const c=runtime();for(const file of ['math.js','paper-insights.js','recommendations-ui.js','paper-cards.js'])load(c,file);return c;}

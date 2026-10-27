@@ -381,6 +381,35 @@ def test_invalid_native_selections_never_create_jobs(client, monkeypatch):
     assert client.get("/api/jobs").json() == []
 
 
+def test_browser_spacing_and_small_edits_translate_same_original_selection(client, monkeypatch):
+    paper = upload(client)
+    expected = "first paragraph with a line break."
+    seen = []
+    monkeypatch.setattr(ai, "complete", lambda system, source, cfg: seen.append(json.loads(source)) or "带有换行的首段。")
+    canonical = selection_submit(client, paper, expected).json()
+    for quote in ("firstparagraphwithalinebreak.", "first paragraphwith a linebreak.",
+                  "first\u00a0paragraph\u200bwith\na line break.",
+                  "first paragrapx with a line break.", "first paraagraph with a line break."):
+        response = selection_submit(client, paper, quote)
+        assert response.status_code == 202, response.text
+        assert response.json()["selection_text"] == expected
+        assert response.json()["id"] == canonical["id"], "All copies reuse the verified original, not client spelling"
+    assert not seen
+    assert jobs.run_one()
+    assert seen[0]["paragraph_text"] == expected
+    assert client.get(f"/api/jobs/{canonical['id']}").json()["status"] == "succeeded"
+    # A typo cannot be repaired using words from an unrelated selected region.
+    response = selection_submit(client, paper, "first paragrapx with a line break.",
+                                selected_rects=page(client, paper)["blocks"][3]["rects"])
+    assert response.status_code == 422
+    # Native span order and reflow order can differ as well as browser spacing.
+    blocks = reading._extract(paper, 1)
+    monkeypatch.setattr(reading, "_extract", lambda *a: list(reversed(blocks)))
+    snapshot = reading.selection_snapshot(paper, 1, paper["sha256"],
+                                          "A paperheadingLeftfirstparagraphwithalinebreak.", blocks[1]["rects"])
+    assert " ".join(snapshot["text"].split()) == "A paper heading Left first paragraph with a line break."
+
+
 def test_native_selection_survives_reflow_order_and_line_hyphen_changes(client, monkeypatch):
     paper = upload(client)
     # BabelDOC/native reflow can legitimately differ in segmentation/order from

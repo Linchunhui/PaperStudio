@@ -3,7 +3,7 @@ import json
 from fastapi import HTTPException
 from . import auth, core, taxonomy
 
-LIST_FIELDS = ("category_ids", "topic_ids", "institutions", "conferences", "keywords")
+LIST_FIELDS = ("category_ids", "topic_ids", "institutions", "conferences", "authors", "keywords")
 
 
 def init_recommendations():
@@ -64,7 +64,7 @@ def save_profile(data, expected_version):
 
 
 def set_follow(kind, value, enabled):
-    field = {"institution": "institutions", "conference": "conferences"}[kind]
+    field = {"institution": "institutions", "conference": "conferences", "author": "authors", "category": "category_ids", "topic": "topic_ids"}[kind]
     # Retry only a concurrent profile write; never replace unrelated preferences.
     for _ in range(3):
         profile = get_profile()
@@ -72,7 +72,7 @@ def set_follow(kind, value, enabled):
         if enabled:
             values.append(value)
         if len(values) > 100:
-            raise HTTPException(422, "最多关注 100 个单位或会议")
+            raise HTTPException(422, "每类最多关注 100 项")
         profile[field] = values
         try:
             return save_profile(profile, profile["version"])

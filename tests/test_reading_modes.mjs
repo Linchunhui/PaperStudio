@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 const source=fs.readFileSync(new URL('../web/reader.js',import.meta.url),'utf8');
 const between=(a,b)=>{const start=source.indexOf(a),end=source.indexOf(b,start+a.length);assert.ok(start>=0&&end>start);return source.slice(start,end);};
 const context=vm.createContext({AbortController,Promise,encodeURIComponent,isAdmin:()=>true});
+vm.runInContext('(function(){'+fs.readFileSync(new URL('../web/math.js',import.meta.url),'utf8').replace(/^export /gm,'')+';Object.assign(globalThis,{mathText,mathMarkdown,sourceSelection});})()',context);
 vm.runInContext(between('// A page','export async function mountReader').replaceAll('export ',''),context);
 const box={x:.1,y:.1,width:.3,height:.15};
 const blocks=[{id:'first',type:'paragraph',text:'Original <script> text.',rects:[box],translation:null},{id:'second',text:'Another paragraph.',rects:[{...box,y:.5}],translation:null}];
@@ -95,11 +96,11 @@ console.log('PASS: default untranslated modes, source block selection, precise-n
 
 // A native sentence uses the verified-selection endpoint, not a paragraph lookup.
 requests=[];
-const selection={side:'original',source_sha:'sha',page:1,quote:'only these words',rects:exact};
+const selection={side:'original',source_sha:'sha',page:1,quote:'onlythese words',rects:exact};
 Object.assign(context,{
  state:{paper:{sha256:'sha'},projectId:'project',readingSequence:3,jobs:[],narrow:false},
  isCurrentAnchor:anchor=>anchor.source_sha==='sha',
- api:async(path,options)=>{requests.push({path,options});return {...job,selection_scope:true};}
+ api:async(path,options)=>{requests.push({path,options});return {...job,selection_scope:true,selection_text:'only these words'};}
 });
 await context.translateExactSelection(selection);
 assert.equal(context.state.readingSequence,4,'invalidate outstanding paragraph selection loads');
@@ -109,6 +110,16 @@ assert.equal(requests[0].options.body.selected_rects,exact);
 await context.translateExactSelection(selection);assert.equal(requests.length,1);
 await assert.rejects(context.translateExactSelection({...selection,source_sha:'old'}),/重新选择/);
 assert.equal(requests.length,1);
+// The service restores copied spaces; accept and show the actual translated
+// original without altering the user's exact rectangles or resubmitting.
+const selectionPanel={dataset:{},hidden:true,innerHTML:''};
+context.qs=()=>selectionPanel;
+vm.runInContext(between('  function renderReadingPanel(', '  async function translateReadingBlock('),context);
+context.renderReadingPanel();
+assert.match(selectionPanel.innerHTML,/<blockquote>only these words<\/blockquote>/);
+assert.doesNotMatch(selectionPanel.innerHTML,/仅翻译上方选中的原文/);
+assert.equal(context.state.selectionTranslation.anchor.quote,selection.quote);
+assert.equal(context.state.selectionTranslation.anchor.rects,exact);
 
 // A selected sentence still finishes when it falls out of the recent-job list.
 vm.runInContext(between('  async function refreshAcceptedReadingJobs(', '  function updateToolbar('),context);

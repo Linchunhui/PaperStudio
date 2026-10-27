@@ -12,15 +12,15 @@ PaperStudio is a Chinese-language research workspace built with native JavaScrip
 - Light separators `#d8e0d9` are decorative. Essential form boundaries use `#7a8d81`; keyboard focus uses the accent.
 - Borders establish content grouping; shadows are reserved for overlays. No decorative page entrances.
 
-`web/design-system.css` is the final semantic layer. Reader geometry, PDF text coordinates and note rectangles are owned by the existing reader and never rescaled through generic type rules.
+`web/design-system.css` owns the shared semantic tokens; `web/workspace-simple.css` and `web/reader-header.css` refine the current workspace and reader layout. Reader geometry, PDF text coordinates and note rectangles are owned by the existing reader and never rescaled through generic type rules.
 
 ## Interaction rules
 
-- Show paper results early. Use one-column research lists, compact source counts and progressive advanced filters.
+- Show paper results early. Use shared one/two-column paper cards, paged entity cards and progressive cross filters.
 - Selected filters remain visible and individually removable. Retain existing results while fetching, and clearly label stale results after errors.
 - Navigation has a current state and skip link. At 900px or below, the workspace navigation opens on demand with Escape, focus return and background isolation.
-- Reader settings live on the right. Narrow screens show one document at a time and expose tools on demand; the reader center is reserved for the paper.
-- Selecting text does not launch a model or open notes. Right-click or its keyboard equivalent exposes the four explicit actions.
+- Document display switches, page and zoom controls share the title bar; interpretation, Q&A and notes live on the right. Narrow screens show one document at a time and expose tools on demand; the reader center is reserved for the paper.
+- Selecting text does not launch a model or open notes. Right-click or its keyboard equivalent exposes explicit translation, explanation, Q&A and note actions.
 - Citations remain collapsed until opened. Research lineage and structured analysis run only after explicit interaction.
 - Background refresh must preserve question drafts, form input and focus. Use native disclosure and dialog semantics where possible.
 - Ordinary users never receive administrator configuration controls. Visual refinement must not weaken backend permissions or provenance.
@@ -31,3 +31,7 @@ PaperStudio is a Chinese-language research workspace built with native JavaScrip
 - [Impeccable](https://github.com/pbakaus/impeccable/blob/main/skill/SKILL.src.md), especially Operate/Read, polish and craft-floor guidance: preserve identity, clarify hierarchy, resolve inaccessible states and validate the whole path. The context launcher/detector was unavailable; source guidance and project code were reviewed directly.
 
 Token contrast checks pass 4.5:1 for the authored primary/secondary/action/error/warning text pairs; this is not a blanket WCAG conformance claim. Controller tests, stylesheet parsing and code review complement but do not replace rendered visual and touch testing. Browser navigation returned HTTP 401 in this environment, so actual browser screenshots and gesture QA remain unverified.
+
+## Current workspace structure
+
+Search and recommendations share a search-first page, with result reasons and no preference form. Entity cards expose follow actions and lead to paper lists; cross filters remain collapsed until needed. Library sections contain papers/projects, account follows, imports and background tasks. Legacy corpus entries remain in storage but are absent from navigation and import destinations. Comparison is an explicit project action with a native selection dialog. Formulas use bundled KaTeX with native MathML, independent of CDN/fonts; unavailable formula source remains an original PDF crop.

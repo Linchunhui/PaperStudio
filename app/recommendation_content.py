@@ -13,6 +13,8 @@ DOCUMENT_VERSION = "paper-title-abstract-v1"
 
 def presentation(con, paper):
     """Public catalog interpretation only; never consult personal research jobs."""
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE name='recommendation_structured'").fetchone():
+        return {"abstract": paper.get("abstract") or "", "structured": None}
     row = con.execute("SELECT * FROM recommendation_structured WHERE catalog_paper_id=?",
                       (paper["id"],)).fetchone()
     structured = None

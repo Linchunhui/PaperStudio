@@ -42,19 +42,13 @@ const click=async dataset=>{await handlers.get('click')({target:{closest:()=>({d
 (async()=>{
   vm.runInContext(source,context);
   await settle();
-  assert.match(el('#app').innerHTML,/id="discovery-search-form"/,'default view must be external discovery');
-  assert.match(el('#discovery-results').innerHTML,/&lt;img src=x onerror=alert\(1\)&gt;/,'external markup must be escaped');
-  assert.doesNotMatch(el('#discovery-results').innerHTML,/href="javascript:/,'external unsafe scheme must not become a link');
-  assert.match(el('#discovery-results').innerHTML,/等待配置/,'unconfigured source must be explicit');
-  assert.match(el('#app').innerHTML,/<details class="discovery-preferences"[^>]*>/);
-  assert.doesNotMatch(el('#app').innerHTML,/<details class="discovery-preferences"[^>]*\bopen\b/);
-  assert.match(el('#discovery-results').innerHTML,/<details class="source-status-disclosure"/);
-  assert.match(el('#discovery-results').innerHTML,/Hugging Face · 量子位/,'merged source IDs must be preserved');
+  assert.match(el('#app').innerHTML,/id="explore-panel"/,'default view mounts unified search and recommendations');
+  assert.doesNotMatch(el('#app').innerHTML,/data-view="recommendations"|data-view="imports"/);
   await click({view:'skills'});
-  assert.match(el('#app').innerHTML,/searxng/,'service page must match nested web_search config');
-  await click({importResult:'1'});
-  assert.match(el('#app').innerHTML,/https:\/\/arxiv.org\/abs\/2501.12948/,'paper import must prefill original URL');
-  assert.match(el('#app').innerHTML,/class="processing-grid"/,'all processing controls must be grouped');
+  assert.match(el('#app').innerHTML,/searxng/);
+  await click({action:'open-import'});
+  assert.match(el('#app').innerHTML,/data-library-section="follows"/);
+  assert.match(el('#app').innerHTML,/class="processing-grid"/);
   const submitButton={disabled:false,isConnected:true,textContent:''};
   const form={id:'import-form',data:{url:'https://arxiv.org/abs/2501.12948v1',project_id:'child',title:'Paper'},elements:{parse:{checked:false},translate:{checked:true},guide:{checked:false},abstract:{checked:true},cards:{checked:true},summary:{checked:true}},querySelector:()=>submitButton};
   await handlers.get('submit')({preventDefault(){},target:form});
@@ -67,11 +61,7 @@ const click=async dataset=>{await handlers.get('click')({target:{closest:()=>({d
   await handlers.get('submit')({preventDefault(){},target:form});
   assert.equal(countPosts(),beforeInvalid,'invalid input URL must not be sent to import API');
   assert.match(el('#import-feedback').textContent,/HTTP\(S\)/,'invalid link must explain accepted schemes');
-  await click({view:'discover'});
-  const searchForm={id:'discovery-search-form',data:{q:'OCR multimodal',scope:'web'},querySelector:()=>submitButton};
-  await handlers.get('submit')({preventDefault(){},target:searchForm});
-  assert.ok(requests.some(x=>x.path==='/api/discovery/search?q=OCR+multimodal&scope=web&page=1'),'homepage search must call discovery search rather than library search');
-  await click({view:'library'});
+  await click({librarySection:'papers'});
   const beforeLibraryRefresh=requests.filter(x=>x.path.startsWith('/api/papers')).length;
   importRows=[{id:'i1',paper_id:'new-paper',status:'running',project_id:'inbox',steps:[]}];
   libraryRows=[{id:'new-paper',title:'Background paper',page_count:3,memberships:[{project_id:'inbox',status:'unread'}]}];
@@ -89,12 +79,6 @@ const click=async dataset=>{await handlers.get('click')({target:{closest:()=>({d
   assert.equal(context.processingProgress({kind:'download',progress:{downloaded_bytes:1048576,total_bytes:2097152,source_sha:'secret'}}),'已下载 1.0 / 2.0 MB');
   assert.match(context.processingProgress({kind:'translate',progress:{coverage:{ready_pages:3,total_pages:8,translation_run_id:'secret'}}}),/3 \/ 8 页/);
   assert.doesNotMatch(context.processingProgress({kind:'parse',progress:{text_pages:7,total_pages:8,source_sha:'secret',scope:'internals'}}),/secret|internals/);
-  await click({view:'discover'});await click({action:'show-feed'});
-  const pendingSearch=handlers.get('submit')({preventDefault(){},target:{id:'discovery-search-form',data:{q:'slow',scope:'web'},querySelector:()=>submitButton}});await settle();
-  assert.ok(slowSearchResolve);assert.match(el('#discovery-results').innerHTML,/Paper/);assert.match(el('#discovery-results').innerHTML,/保留上次结果/);
-  assert.equal(el('#discovery-results').attributes['aria-busy'],'true');
-  slowSearchResolve();await pendingSearch;await settle();
-  assert.match(el('#discovery-results').innerHTML,/New search paper/);assert.equal(el('#discovery-results').attributes['aria-busy'],'false');
-  console.log('PASS: default discovery, external escaping, source states, provider config, URL import, full processing payload, invalid URL rejection, external search endpoint, safe URLs, readable progress');
+  console.log('PASS: unified workspace routes, nested library/import UI, provider config, exact processing payload, invalid URL rejection, background library refresh and safe progress');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 

@@ -1,5 +1,5 @@
 """Explicit research actions. Read-only routes never initiate model work."""
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Response
 from fastapi.responses import FileResponse
@@ -31,9 +31,10 @@ class ResearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project_id: str = Field(min_length=1, max_length=100)
     paper_id: str | None = Field(default=None, min_length=1, max_length=100)
-    kind: Literal["qa", "explain", "summary", "figure", "formula", "lineage", "knowledge"]
+    kind: Literal["qa", "explain", "summary", "figure", "formula", "lineage", "knowledge", "compare"]
     question: str = Field(default="", max_length=20000)
     selection: Selection | None = None
+    paper_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] | None = Field(default=None, min_length=2, max_length=6)
 
 
 class VisibilityRequest(BaseModel):

@@ -70,6 +70,10 @@ def init_catalog(seed=True):
         if not con.execute("SELECT 1 FROM catalog_aliases WHERE alias LIKE 'title:%' LIMIT 1").fetchone():
             for existing in con.execute("SELECT id,title FROM catalog_papers").fetchall():
                 con.execute("INSERT OR IGNORE INTO catalog_aliases VALUES(?,?)", ("title:" + title_key(existing["title"]), existing["id"]))
+    with core.db() as con:
+        if not con.execute("SELECT 1 FROM catalog_migrations WHERE id='author-facets-v1'").fetchone():
+            con.execute("INSERT OR IGNORE INTO catalog_facets SELECT p.id,'author',a.value FROM catalog_papers p,json_each(p.data,'$.authors') a WHERE a.type='text' AND trim(a.value)!=''")
+            con.execute("INSERT INTO catalog_migrations VALUES('author-facets-v1','{}',?)", (core.now(),))
     _reindex_directions()
     if seed:
         manifest = SEED_DIR / "manifest.json"
@@ -523,6 +527,7 @@ def _save_paper(con, identifier, data, now):
     con.execute("DELETE FROM catalog_facets WHERE paper_id=?", (identifier,))
     con.execute("DELETE FROM catalog_conferences WHERE paper_id=?", (identifier,))
     facets = [(identifier, "direction", label) for label in data.get("directions", [])]
+    facets += [(identifier, "author", name) for name in data.get("authors", [])]
     facets += [(identifier, kind, value) for kind, value in taxonomy.facets(data["classification"])]
     con.executemany("INSERT OR IGNORE INTO catalog_facets VALUES(?,?,?)", facets)
     con.executemany("INSERT OR IGNORE INTO catalog_conferences VALUES(?,?,?,?,?,?)", [(identifier, c["conference"], c["year"], c["presentation"], c["verification_status"], c["selectivity"]) for c in data.get("conferences", [])])
@@ -618,7 +623,7 @@ def import_bytes(content, filename="catalog.json", *, skip_existing=False):
     return {"id": event_id, "name": name, "status": "succeeded", "row_count": len(rows), **counts, "created_at": now, "datasets": datasets}
 
 
-def search(q="", year=None, source="all", institution="", sort="votes", page=1, page_size=24, *, conference="", conference_year=None, presentation="", verification_status="all", direction="", topic=""):
+def filter_sql(q="", year=None, source="all", institution="", *, conference="", conference_year=None, presentation="", verification_status="all", direction="", topic="", author=""):
     where, args = [], []
     for term in q.strip().casefold().split()[:20]:
         where.append("p.search_text LIKE ? ESCAPE '\\'")
@@ -632,6 +637,9 @@ def search(q="", year=None, source="all", institution="", sort="votes", page=1, 
     if institution:
         where.append("EXISTS(SELECT 1 FROM catalog_institutions i WHERE i.paper_id=p.id AND i.name=?)")
         args.append(institution)
+    if author:
+        where.append("EXISTS(SELECT 1 FROM catalog_facets a WHERE a.paper_id=p.id AND a.kind='author' AND a.value=?)")
+        args.append(author)
     conference_terms, conference_args = [], []
     for column, value in (("name", conference), ("year", conference_year), ("presentation", presentation), ("verification_status", verification_status if verification_status != "all" else "")):
         if value:
@@ -652,13 +660,39 @@ def search(q="", year=None, source="all", institution="", sort="votes", page=1, 
         where.append("EXISTS(SELECT 1 FROM catalog_facets f WHERE f.paper_id=p.id AND f.kind='topic' AND f.value=?)")
         args.append(child or topic)
     condition = " WHERE " + " AND ".join(where) if where else ""
+    return condition, args
+
+
+def search(q="", year=None, source="all", institution="", sort="votes", page=1, page_size=24, *, conference="", conference_year=None, presentation="", verification_status="all", direction="", topic="", author=""):
+    condition, args = filter_sql(q, year, source, institution, conference=conference, conference_year=conference_year, presentation=presentation, verification_status=verification_status, direction=direction, topic=topic, author=author)
     orders = {"votes": "p.hf_upvotes IS NULL,p.hf_upvotes DESC,p.published_at DESC,p.id", "published": "p.published_at IS NULL,p.published_at DESC,p.year DESC,p.id", "title": "p.title COLLATE NOCASE,p.id", "stars": "json_extract(p.data,'$.github_stars') IS NULL,json_extract(p.data,'$.github_stars') DESC,p.id"}
+    orders["oldest"] = "p.published_at IS NULL,p.published_at ASC,p.year ASC,p.id"
+    rank_args = []
+    rank_terms = []
+    for term in q.strip().casefold().split()[:20]:
+        rank_terms.append("(CASE WHEN instr(lower(p.title),?)>0 THEN 4 ELSE 0 END + CASE WHEN instr(lower(json_extract(p.data,'$.abstract')),?)>0 THEN 2 ELSE 0 END)")
+        rank_args.extend([term, term])
+    orders["relevance"] = ("(" + "+".join(rank_terms) + ") DESC," if rank_terms else "") + orders["published"]
+    if sort != "relevance":
+        rank_args = []
     if sort not in orders:
         raise HTTPException(422, "未知排序")
     with core.db() as con:
         total = con.execute("SELECT count(*) FROM catalog_papers p" + condition, args).fetchone()[0]
-        rows = con.execute("SELECT p.data FROM catalog_papers p" + condition + " ORDER BY " + orders[sort] + " LIMIT ? OFFSET ?", [*args, page_size, (page - 1) * page_size]).fetchall()
-    return {"items": [json.loads(r[0]) for r in rows], "total": total, "page": page, "page_size": page_size, "pages": (total + page_size - 1) // page_size}
+        rows = con.execute("SELECT p.data FROM catalog_papers p" + condition + " ORDER BY " + orders[sort] + " LIMIT ? OFFSET ?", [*args, *rank_args, page_size, (page - 1) * page_size]).fetchall()
+        from .recommendation_content import presentation
+        items = []
+        for row in rows:
+            item = json.loads(row[0])
+            item.update(presentation(con, item))
+            fields = [("标题", item["title"]), ("摘要", item.get("abstract", "")), ("作者", " ".join(item.get("authors", []))), ("机构", " ".join(item.get("institutions", [])))]
+            reasons = [name + "匹配：" + "、".join(term for term in q.strip().split()[:20] if term.casefold() in text.casefold()) for name, text in fields if any(term.casefold() in text.casefold() for term in q.strip().split()[:20])]
+            if q.strip() and not reasons:
+                reasons.append("匹配方向、会议或论文标识元数据")
+            reasons.append({"relevance": "标题命中权重 4、摘要命中权重 2；同分按发表时间", "published": "按发表时间由新到旧，缺失日期置后", "oldest": "按发表时间由旧到新，缺失日期置后", "votes": "按 HF 点赞排序，缺失值置后", "stars": "按 GitHub Stars 排序，缺失值置后", "title": "按论文标题排序"}[sort])
+            item["reasons"] = reasons
+            items.append(item)
+    return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": (total + page_size - 1) // page_size}
 
 
 def stats():

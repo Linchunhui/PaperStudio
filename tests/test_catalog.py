@@ -81,7 +81,7 @@ def test_existing_catalog_backfill_is_atomic_idempotent_and_preserves_sources(cl
     after = client.get("/api/catalog").json()["items"]
     for original in before:
         new = next(p for p in after if p["id"] == original["id"])
-        assert {k: v for k, v in new.items() if k != "classification"} == json.loads(original["data"])
+        assert {k: v for k, v in new.items() if k not in {"classification", "reasons", "structured"}} == json.loads(original["data"])
     assert client.get("/api/catalog", params={"direction": "Legacy source tag"}).json()["total"] == 1
     monkeypatch.setattr(taxonomy, "classify", lambda *a: pytest.fail("already-current rows must not be reclassified"))
     catalog.init_catalog(seed=False)
@@ -398,7 +398,7 @@ def test_no_manifest_keeps_both_legacy_hf_and_reviewed_institution_seeds(client,
     assert not stats['import_errors']
     assert catalog.search(institution='Legacy Lab')['total'] == 1
     with core.db() as con:
-        assert con.execute('SELECT count(*) FROM catalog_migrations').fetchone()[0] == 0
+        assert con.execute("SELECT count(*) FROM catalog_migrations WHERE id != 'author-facets-v1'").fetchone()[0] == 0
         assert con.execute('SELECT count(*) FROM catalog_legacy_archive').fetchone()[0] == 0
 
 

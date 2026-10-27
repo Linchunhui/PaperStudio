@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
-const source=fs.readFileSync(new URL('../web/research-ui.js',import.meta.url),'utf8').replace(/^import .*$/m,'').replace(/^export /gm,'');
+const source=fs.readFileSync(new URL('../web/research-ui.js',import.meta.url),'utf8').replace(/^import .*$/gm,'').replace(/^export /gm,'');
 const requests=[],events=[],navigations=[],nodes=new Map();
 const node=key=>{if(!nodes.has(key))nodes.set(key,{isConnected:true,hidden:true,innerHTML:'',scrollTop:0,querySelectorAll(){return [];},querySelector(){return null;},contains(){return false;},closest(){return {setAttribute(){}};}});return nodes.get(key);};
 const quote={id:'e1',type:'paper',paper_id:'p1',project_id:'project',paper_title:'<unsafe>',source_sha:'abcdef',page:2,quote:'We report <script>no execution</script>.',rects:[{x:0.1,y:0.2,w:0.3,h:0.1}]};
@@ -17,6 +17,7 @@ const context=vm.createContext({document:{activeElement:null},console,URLSearchP
   if(path==='/research/reference-assets/ref-asset/import')return {id:'imported-reference'};
   throw new Error('Unexpected request '+path);
 }});
+vm.runInContext('(function(){'+fs.readFileSync(new URL('../web/math.js',import.meta.url),'utf8').replace(/^export /gm,'')+';Object.assign(globalThis,{mathText,mathMarkdown,sourceSelection});})()',context);
 vm.runInContext(source,context);
 const evidence=context.citationMarkup(quote);
 assert.match(evidence,/<details class="evidence-card">/,'Citation must start collapsed');

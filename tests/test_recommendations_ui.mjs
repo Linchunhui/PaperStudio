@@ -9,7 +9,8 @@ class Fields {
   getAll(key) { return Array.isArray(this.data[key]) ? this.data[key] : []; }
 }
 const context = vm.createContext({console, URLSearchParams, AbortController, FormData: Fields});
-vm.runInContext(fs.readFileSync(new URL('../web/paper-insights.js',import.meta.url),'utf8').replace(/^export /gm,''),context);
+vm.runInContext('(function(){'+fs.readFileSync(new URL('../web/math.js',import.meta.url),'utf8').replace(/^export /gm,'')+';Object.assign(globalThis,{mathText,mathMarkdown,sourceSelection});})()',context);
+vm.runInContext(fs.readFileSync(new URL('../web/paper-insights.js',import.meta.url),'utf8').replace(/^import .*$/gm,'').replace(/^export /gm,''),context);
 vm.runInContext(source, context);
 const {mountRecommendations, loadProfile} = vm.runInContext('({mountRecommendations,loadProfile})', context);
 const empty = {version: 0, configured: false, category_ids: [], topic_ids: [], institutions: [], conferences: [], keywords: [], freshness_days: 30};
