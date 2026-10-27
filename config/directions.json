@@ -1,0 +1,1265 @@
+{
+  "version": "paperatlas-directions-v1.1",
+  "categories": [
+    {
+      "id": "nlp",
+      "name": "LLM / NLP",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "nlp.pretrain",
+          "name": "语言模型预训练与数据",
+          "description": "Language model pretraining, scaling laws, training corpora, synthetic text data curation and data mixture selection for large language models.",
+          "patterns": [
+            "pretraining language",
+            "language model pre-training",
+            "scaling laws",
+            "data mixtures",
+            "training corpus",
+            "language model pretraining",
+            "synthetic data for language"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "nlp.reason",
+          "name": "语言推理与数学",
+          "description": "Reasoning in large language models, chain of thought, mathematical problem solving, theorem proving, test time reasoning and self consistency.",
+          "patterns": [
+            "chain of thought",
+            "chain-of-thought",
+            "mathematical reasoning",
+            "math reasoning",
+            "theorem proving",
+            "reasoning in language",
+            "reasoning with language",
+            "test-time reasoning",
+            "language models reason"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "nlp.code",
+          "name": "代码模型与软件工程",
+          "description": "Code generation and program synthesis with language models, code completion, software engineering, automated debugging, program repair and code agents.",
+          "patterns": [
+            "code generation",
+            "program synthesis",
+            "program repair",
+            "code completion",
+            "software engineering",
+            "debugging",
+            "code language model"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "nlp.agent",
+          "name": "智能体与工具使用",
+          "description": "Large language model agents for tool use, autonomous web browsing, multi agent collaboration, planning, task completion and interactive environments.",
+          "patterns": [
+            "tool use",
+            "tool-use",
+            "tool learning",
+            "language agents",
+            "llm agents",
+            "web agents",
+            "autonomous agents",
+            "agentic",
+            "tool calling"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "nlp.context",
+          "name": "长上下文与记忆",
+          "description": "Long context language models, context window extension, long document comprehension, memory augmented language models and in context learning.",
+          "patterns": [
+            "long context",
+            "long-context",
+            "context window",
+            "in-context learning",
+            "in context learning",
+            "language model memory",
+            "context length"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "nlp.language",
+          "name": "语言理解、翻译与多语",
+          "description": "Natural language processing for machine translation, multilingual cross lingual learning, information extraction, summarization, sentiment and text classification. Related topics: implicit language, pragmatics, linguistic understanding.",
+          "patterns": [
+            "machine translation",
+            "multilingual",
+            "cross-lingual",
+            "information extraction",
+            "named entity",
+            "text summarization",
+            "sentiment",
+            "text classification",
+            "low-resource language",
+            "implicit language",
+            "pragmatics",
+            "linguistic understanding"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "nlp.dialogue",
+          "name": "对话、指令与文本问答",
+          "description": "Instruction tuning and instruction following language models, conversational dialogue systems, text question answering, language model assistants and response generation.",
+          "patterns": [
+            "instruction tuning",
+            "instruction following",
+            "instruction-following",
+            "dialogue",
+            "conversational",
+            "text question answering",
+            "chatbot"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "multimodal",
+      "name": "多模态",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "multimodal.align",
+          "name": "视觉语言对齐与预训练",
+          "description": "Vision language representation learning, image text contrastive alignment, CLIP, multimodal pretraining and cross modal fusion.",
+          "patterns": [
+            "vision-language pretraining",
+            "vision language pretraining",
+            "image-text alignment",
+            "image-text contrastive",
+            "cross-modal alignment",
+            "multimodal pretraining",
+            "contrastive language-image"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "multimodal.vqa",
+          "name": "多模态理解与视觉问答",
+          "description": "Multimodal large language models, visual question answering, image captioning, visual reasoning, visual grounding and referring expressions.",
+          "patterns": [
+            "visual question answering",
+            "visual reasoning",
+            "multimodal large language",
+            "multimodal language model",
+            "image captioning",
+            "referring expression",
+            "visual grounding"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "multimodal.av",
+          "name": "视频、语音与跨模态交互",
+          "description": "Audio visual learning, video language understanding, speech language models, audiovisual fusion, video question answering and multimodal speech interaction. Related topics: video moment retrieval, video text retrieval.",
+          "patterns": [
+            "audio-visual",
+            "audiovisual",
+            "audio visual",
+            "video question",
+            "video-language",
+            "speech language model",
+            "audio language model",
+            "speech recognition",
+            "speech translation",
+            "video moment retrieval",
+            "video text retrieval"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "multimodal.unified",
+          "name": "统一理解与生成",
+          "description": "Unified multimodal understanding and generation models, any to any multimodal models, interleaved image text generation and unified visual language modeling.",
+          "patterns": [
+            "unified multimodal",
+            "understanding and generation",
+            "any-to-any",
+            "interleaved image",
+            "multimodal generation and understanding"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "multimodal.eval",
+          "name": "多模态评测与数据",
+          "description": "Multimodal evaluation benchmarks and datasets testing visual language understanding, multimodal large models and cross modal capabilities.",
+          "patterns": [
+            "multimodal benchmark",
+            "multimodal evaluation",
+            "benchmarking multimodal",
+            "vision-language benchmark",
+            "visual question answering dataset",
+            "multimodal dataset"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "vision",
+      "name": "计算机视觉",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "vision.repr",
+          "name": "图像识别与视觉表征",
+          "description": "Image classification, image recognition, visual representation learning, visual encoders and self supervised visual features.",
+          "patterns": [
+            "image classification",
+            "image recognition",
+            "visual representation",
+            "visual encoder",
+            "vision transformer",
+            "self-supervised visual"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "vision.dense",
+          "name": "检测、分割、计数与跟踪",
+          "description": "Object detection, image semantic segmentation, instance segmentation, panoptic segmentation, visual object tracking and open vocabulary detection. Related topics: object counting, class-agnostic counting.",
+          "patterns": [
+            "object detection",
+            "semantic segmentation",
+            "instance segmentation",
+            "panoptic segmentation",
+            "object tracking",
+            "open-vocabulary detection",
+            "image segmentation",
+            "object counting",
+            "class-agnostic counting"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "vision.restore",
+          "name": "图像恢复与增强",
+          "description": "Low level image processing, image restoration, image denoising, deblurring, super resolution, image enhancement, image compression and image quality assessment.",
+          "patterns": [
+            "image restoration",
+            "super-resolution",
+            "super resolution",
+            "deblurring",
+            "image denoising",
+            "image enhancement",
+            "image compression",
+            "image quality",
+            "low-light"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "vision.video",
+          "name": "视频理解与动作识别",
+          "description": "Video understanding, action recognition, temporal action localization, video representation learning and event detection in videos.",
+          "patterns": [
+            "action recognition",
+            "action localization",
+            "video understanding",
+            "temporal action",
+            "video representation",
+            "event camera"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "vision.adapt",
+          "name": "视觉迁移、少样本与开放世界",
+          "description": "Few shot visual recognition, open world image recognition, domain adaptation for computer vision, out of distribution image classification and visual domain generalization.",
+          "patterns": [
+            "few-shot image",
+            "few shot image",
+            "open-world recognition",
+            "open-set recognition",
+            "test-time adaptation",
+            "visual domain",
+            "domain generalization"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "vision.human",
+          "name": "人体、姿态与细粒度感知",
+          "description": "Human pose estimation, face recognition, person re identification, fine grained visual recognition, human behavior and biometric perception.",
+          "patterns": [
+            "pose estimation",
+            "face recognition",
+            "person re-identification",
+            "fine-grained recognition",
+            "human parsing",
+            "facial expression",
+            "gaze estimation"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "document",
+      "name": "OCR / 文档智能",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "document.ocr",
+          "name": "文字识别与文字图像处理",
+          "description": "Optical character recognition, OCR, scene text detection and recognition, handwritten text recognition and multilingual document transcription. Related topics: scene text editing, text image synthesis, font generation.",
+          "patterns": [
+            "optical character recognition",
+            "scene text",
+            "text recognition",
+            "text detection",
+            "handwriting recognition",
+            "handwritten text",
+            "\\bocr\\b",
+            "scene text editing",
+            "text image synthesis",
+            "font generation"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "document.layout",
+          "name": "版面分析与文档解析",
+          "description": "Document layout analysis, reading order detection, document parsing, page segmentation, PDF parsing and document structure extraction.",
+          "patterns": [
+            "document layout",
+            "layout analysis",
+            "document parsing",
+            "reading order",
+            "pdf parsing",
+            "page segmentation",
+            "document structure"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "document.docqa",
+          "name": "文档理解与问答",
+          "description": "Document visual question answering, document understanding, information extraction from receipts forms and visually rich documents, document language models.",
+          "patterns": [
+            "document understanding",
+            "document question answering",
+            "document visual question",
+            "docvqa",
+            "visually rich document",
+            "receipt understanding",
+            "form understanding"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "document.table",
+          "name": "表格、公式与图表识别",
+          "description": "Table structure recognition, mathematical expression recognition, chart question answering, table extraction, formula recognition and scientific diagram understanding.",
+          "patterns": [
+            "table recognition",
+            "table structure",
+            "table extraction",
+            "formula recognition",
+            "mathematical expression recognition",
+            "chart understanding",
+            "chart question",
+            "chartqa",
+            "diagram understanding"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "document.docsearch",
+          "name": "文档检索与长文档处理",
+          "description": "Document retrieval using page images, visually rich document retrieval, document translation, document digitization and scholarly document processing.",
+          "patterns": [
+            "visual document retrieval",
+            "document image retrieval",
+            "document translation",
+            "document digitization",
+            "pdf retrieval",
+            "scholarly document",
+            "document image processing"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "generation",
+      "name": "生成模型",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "generation.diffusion",
+          "name": "扩散模型与流匹配",
+          "description": "Diffusion models and flow matching, score based generative modeling, stochastic differential equations for generative sampling, diffusion sampling and rectified flows.",
+          "patterns": [
+            "diffusion model",
+            "flow matching",
+            "rectified flow",
+            "score-based generative",
+            "diffusion sampling",
+            "denoising diffusion"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "generation.latent",
+          "name": "GAN、VAE 与潜变量生成",
+          "description": "Generative adversarial networks, variational autoencoders, normalizing flows, latent variable models and latent representation generation.",
+          "patterns": [
+            "generative adversarial",
+            "variational autoencoder",
+            "normalizing flow",
+            "latent variable model",
+            "\\bgan\\b",
+            "\\bvae\\b"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "generation.image",
+          "name": "图像生成与编辑",
+          "description": "Text to image generation, controllable image synthesis, image editing, image personalization, image inpainting and image generation.",
+          "patterns": [
+            "text-to-image",
+            "image generation",
+            "image editing",
+            "image synthesis",
+            "image inpainting",
+            "image personalization",
+            "controllable generation"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "generation.video",
+          "name": "视频生成与编辑",
+          "description": "Text to video generation, video synthesis, video editing, controllable video generation and temporal consistency for generated videos.",
+          "patterns": [
+            "text-to-video",
+            "video generation",
+            "video synthesis",
+            "video editing",
+            "image-to-video"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "generation.audio",
+          "name": "语音、音乐与音频生成",
+          "description": "Speech synthesis, text to speech, audio generation, music generation, singing synthesis and speech enhancement. Related topics: speech and singing, speech synthesizer, text to speech.",
+          "patterns": [
+            "text-to-speech",
+            "speech synthesis",
+            "audio generation",
+            "music generation",
+            "singing synthesis",
+            "speech enhancement",
+            "speech and singing",
+            "speech synthesizer",
+            "text to speech"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "generation.discrete",
+          "name": "离散、掩码与自回归生成",
+          "description": "Discrete diffusion models, masked generative modeling, autoregressive image generation, tokenized generative models and non autoregressive generation.",
+          "patterns": [
+            "discrete diffusion",
+            "masked generative",
+            "autoregressive image",
+            "discrete generative",
+            "non-autoregressive generation",
+            "diffusion language model"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "geometry",
+      "name": "三维与图形学",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "geometry.reconstruct",
+          "name": "三维重建与神经辐射场",
+          "description": "3D reconstruction, neural radiance fields, structure from motion, multiview stereo, novel view synthesis and depth estimation.",
+          "patterns": [
+            "3d reconstruction",
+            "neural radiance",
+            "\\bnerf\\b",
+            "structure from motion",
+            "multi-view stereo",
+            "novel view synthesis",
+            "depth estimation"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "geometry.gaussian",
+          "name": "3D Gaussian Splatting",
+          "description": "3D Gaussian splatting for scene reconstruction, Gaussian scene representations, dynamic Gaussian splats and efficient Gaussian rendering.",
+          "patterns": [
+            "gaussian splatting",
+            "gaussian splats",
+            "3d gaussian",
+            "4d gaussian",
+            "2d gaussian",
+            "\\b3dgs\\b"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "geometry.shape",
+          "name": "几何、点云与形状",
+          "description": "Point cloud learning, 3D shape analysis, mesh processing, geometric correspondence, point registration and geometric representations.",
+          "patterns": [
+            "point cloud",
+            "shape analysis",
+            "mesh processing",
+            "point registration",
+            "geometric correspondence",
+            "shape matching",
+            "surface reconstruction"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "geometry.generate",
+          "name": "三维生成与编辑",
+          "description": "Text to 3D generation, 3D object synthesis, 3D shape generation, scene generation and editing three dimensional assets.",
+          "patterns": [
+            "text-to-3d",
+            "3d generation",
+            "3d shape generation",
+            "3d object generation",
+            "3d synthesis",
+            "3d editing",
+            "scene generation"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "geometry.graphics",
+          "name": "渲染、动画与数字人",
+          "description": "Physically based rendering, inverse rendering, human avatars, character animation, human motion generation, material and lighting estimation. Related topics: motion generation, motion synthesis, human-object interaction synthesis, automatic rigging, 3d animation.",
+          "patterns": [
+            "inverse rendering",
+            "physically based rendering",
+            "avatar",
+            "character animation",
+            "human motion generation",
+            "material estimation",
+            "lighting estimation",
+            "motion generation",
+            "motion synthesis",
+            "human-object interaction synthesis",
+            "automatic rigging",
+            "3d animation"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "geometry.scene",
+          "name": "三维场景理解",
+          "description": "3D scene understanding, 3D semantic segmentation, 3D object detection, spatial scene reasoning, 3D grounding and embodied scene representations.",
+          "patterns": [
+            "3d scene understanding",
+            "3d semantic segmentation",
+            "3d object detection",
+            "3d grounding",
+            "3d instance segmentation",
+            "3d scene graph"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "rl",
+      "name": "强化学习",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "rl.policy",
+          "name": "策略学习与在线强化学习",
+          "description": "Reinforcement learning policy optimization, actor critic algorithms, online reinforcement learning, value functions and policy gradients.",
+          "patterns": [
+            "policy gradient",
+            "actor-critic",
+            "policy optimization",
+            "online reinforcement learning",
+            "value function",
+            "reinforcement learning algorithm"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "rl.offline",
+          "name": "离线强化学习与离策略评估",
+          "description": "Offline reinforcement learning from fixed datasets, batch reinforcement learning, conservative policy learning and offline to online policy improvement. Related topics: off-policy evaluation.",
+          "patterns": [
+            "offline reinforcement",
+            "offline rl",
+            "batch reinforcement",
+            "offline-to-online",
+            "offline policy",
+            "off-policy evaluation"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "rl.world",
+          "name": "世界模型与模型式决策",
+          "description": "Model based reinforcement learning, learned world models, environment dynamics models, model predictive reinforcement learning and planning with world models.",
+          "patterns": [
+            "world model",
+            "model-based reinforcement",
+            "model based reinforcement",
+            "learned dynamics",
+            "environment model",
+            "dynamics model"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "rl.explore",
+          "name": "探索、奖励与信用分配",
+          "description": "Exploration in reinforcement learning, intrinsic motivation, reward shaping, temporal credit assignment, exploration exploitation and curiosity driven learning.",
+          "patterns": [
+            "reward shaping",
+            "credit assignment",
+            "intrinsic motivation",
+            "curiosity-driven",
+            "exploration-exploitation",
+            "exploration in reinforcement"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "rl.multiagent",
+          "name": "多智能体与博弈",
+          "description": "Multi agent reinforcement learning, cooperative decentralized policies, game theoretic learning, equilibrium finding and competitive games.",
+          "patterns": [
+            "multi-agent reinforcement",
+            "multiagent reinforcement",
+            "decentralized policy",
+            "nash equilibrium",
+            "mean-field game",
+            "cooperative agents"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "rl.preference",
+          "name": "语言模型强化学习与偏好优化",
+          "description": "Reinforcement learning from human feedback, RLHF, direct preference optimization, reward models for language models and preference based alignment. Related topics: verifiable rewards, rlvr, reinforcement learning to unleash.",
+          "patterns": [
+            "human feedback",
+            "rlhf",
+            "preference optimization",
+            "preference learning",
+            "reward modeling",
+            "reward model",
+            "reinforcement learning for language",
+            "verifiable rewards",
+            "rlvr",
+            "reinforcement learning to unleash"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "robotics",
+      "name": "机器人 / VLA",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "robotics.vla",
+          "name": "模仿学习与 VLA",
+          "description": "Robot learning from demonstrations, imitation learning, vision language action models, generalist robot policies and robot foundation models.",
+          "patterns": [
+            "imitation learning",
+            "vision-language-action",
+            "vision language action",
+            "robot foundation",
+            "robot learning",
+            "generalist robot",
+            "behavior cloning"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "robotics.manip",
+          "name": "操作、抓取与灵巧手",
+          "description": "Robotic manipulation, dexterous manipulation, robotic grasping, articulated object manipulation, tactile sensing and robot hands. Related topics: deformable manipulation, object manipulation.",
+          "patterns": [
+            "robotic manipulation",
+            "dexterous",
+            "robot grasp",
+            "robotic grasp",
+            "grasping",
+            "tactile",
+            "robot hand",
+            "deformable manipulation",
+            "object manipulation"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "robotics.nav",
+          "name": "导航、定位与 SLAM",
+          "description": "Robot navigation, visual navigation, simultaneous localization and mapping, SLAM, robotic exploration and mobile robot localization.",
+          "patterns": [
+            "robot navigation",
+            "visual navigation",
+            "slam",
+            "localization and mapping",
+            "robotic exploration",
+            "visual odometry",
+            "loop closure"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "robotics.drive",
+          "name": "自动驾驶与交通决策",
+          "description": "Autonomous driving, end to end driving, motion forecasting for traffic agents, autonomous vehicles, trajectory prediction and driving planning.",
+          "patterns": [
+            "autonomous driving",
+            "autonomous vehicle",
+            "end-to-end driving",
+            "motion forecasting",
+            "trajectory prediction",
+            "driving planning"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "robotics.control",
+          "name": "机器人规划与控制",
+          "description": "Robot motion planning, robot control, locomotion, legged robotics, trajectory optimization for robots, model predictive control and sim to real robotics. Related topics: robot co-design, embodied task planning, control policies.",
+          "patterns": [
+            "motion planning",
+            "robot control",
+            "locomotion",
+            "legged robot",
+            "robot planning",
+            "sim-to-real",
+            "model predictive control",
+            "robot co-design",
+            "embodied task planning",
+            "control policies"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "retrieval",
+      "name": "检索 / RAG / 推荐",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "retrieval.search",
+          "name": "检索、排序与向量表示",
+          "description": "Information retrieval, dense passage retrieval, neural document ranking, search engines, learning to rank, search relevance and text embeddings. Related topics: composed image retrieval, image retrieval, personalized search.",
+          "patterns": [
+            "information retrieval",
+            "dense retrieval",
+            "passage retrieval",
+            "learning to rank",
+            "neural ranking",
+            "search engine",
+            "retrieval model",
+            "text embedding",
+            "composed image retrieval",
+            "image retrieval",
+            "personalized search"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "retrieval.rag",
+          "name": "RAG 与知识增强",
+          "description": "Retrieval augmented generation, RAG pipelines, knowledge augmented language models, retrieval generation integration and retrieval based factual question answering.",
+          "patterns": [
+            "retrieval-augmented",
+            "retrieval augmented",
+            "\\brag\\b",
+            "knowledge-augmented language",
+            "retrieval-enhanced"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "retrieval.recommend",
+          "name": "推荐系统与用户建模",
+          "description": "Recommender systems, recommendation, collaborative filtering, sequential recommendation, user modeling and click through rate prediction.",
+          "patterns": [
+            "recommendation",
+            "recommender",
+            "collaborative filtering",
+            "user modeling",
+            "click-through rate",
+            "click through rate"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "retrieval.kg",
+          "name": "知识图谱与实体关系",
+          "description": "Knowledge graphs, knowledge graph completion, entity linking, entity resolution, knowledge graph embeddings and relation extraction.",
+          "patterns": [
+            "knowledge graph",
+            "entity linking",
+            "entity resolution",
+            "relation extraction",
+            "knowledge base completion"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "retrieval.web",
+          "name": "Web、社交网络与信息传播",
+          "description": "Web mining, social network analysis, information diffusion, social media analysis, web graph mining and computational social science.",
+          "patterns": [
+            "web mining",
+            "social network",
+            "social media",
+            "information diffusion",
+            "web graph",
+            "computational social science",
+            "misinformation propagation"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "theory",
+      "name": "学习理论与优化",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "theory.optimization",
+          "name": "优化算法",
+          "description": "Optimization for machine learning, stochastic gradient descent, nonconvex optimization, bilevel optimization, convergence of optimizers and constrained optimization.",
+          "patterns": [
+            "stochastic gradient",
+            "nonconvex",
+            "non-convex",
+            "bilevel optimization",
+            "optimization algorithm",
+            "optimizer",
+            "convex optimization"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "theory.generalization",
+          "name": "泛化、统计与学习理论",
+          "description": "Statistical learning theory, generalization bounds, sample complexity, PAC learning, minimax rates, neural tangent kernels and theoretical foundations. Related topics: grokking, competitive analysis.",
+          "patterns": [
+            "generalization bound",
+            "sample complexity",
+            "pac-bayes",
+            "minimax",
+            "learning theory",
+            "neural tangent",
+            "statistical learning",
+            "generalization error",
+            "grokking",
+            "competitive analysis"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "theory.causal",
+          "name": "因果推断与因果表示",
+          "description": "Causal inference, causal discovery, causal representation learning, treatment effect estimation, counterfactual reasoning and structural causal models.",
+          "patterns": [
+            "causal inference",
+            "causal discovery",
+            "causal representation",
+            "treatment effect",
+            "counterfactual",
+            "structural causal"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "theory.probability",
+          "name": "概率、贝叶斯与不确定性",
+          "description": "Bayesian inference, uncertainty quantification, Gaussian processes, Monte Carlo sampling, probabilistic inference and conformal prediction.",
+          "patterns": [
+            "bayesian",
+            "uncertainty quantification",
+            "gaussian process",
+            "monte carlo",
+            "conformal prediction",
+            "probabilistic inference"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "theory.representation",
+          "name": "表征、监督学习与聚类",
+          "description": "General representation learning, self supervised learning, contrastive learning theory, clustering, representation geometry and unsupervised learning methods. Related topics: label distribution learning, label enhancement, feature transformation.",
+          "patterns": [
+            "representation learning",
+            "self-supervised learning",
+            "contrastive learning",
+            "clustering",
+            "representation geometry",
+            "unsupervised learning",
+            "label distribution learning",
+            "label enhancement",
+            "feature transformation"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "theory.graph",
+          "name": "图学习与组合结构",
+          "description": "Graph neural networks, graph representation learning, graph transformers, graph learning, combinatorial optimization and structured graph prediction.",
+          "patterns": [
+            "graph neural",
+            "graph learning",
+            "graph transformer",
+            "graph representation",
+            "combinatorial optimization",
+            "graph classification"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "theory.continual",
+          "name": "持续、迁移与元学习",
+          "description": "Continual learning, lifelong learning, meta learning, transfer learning, multitask learning, few shot learning and catastrophic forgetting.",
+          "patterns": [
+            "continual learning",
+            "lifelong learning",
+            "meta-learning",
+            "meta learning",
+            "catastrophic forgetting",
+            "multi-task learning",
+            "multitask learning",
+            "transfer learning"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "efficiency",
+      "name": "训练与推理效率",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "efficiency.compress",
+          "name": "量化、剪枝与压缩",
+          "description": "Model quantization, low bit neural networks, network pruning, model compression, weight quantization and quantization aware training.",
+          "patterns": [
+            "quantization",
+            "quantisation",
+            "pruning",
+            "model compression",
+            "low-bit",
+            "low bit",
+            "weight compression"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "efficiency.adapt",
+          "name": "蒸馏与参数高效微调",
+          "description": "Knowledge distillation, model distillation, parameter efficient fine tuning, low rank adaptation, LoRA and efficient model adaptation.",
+          "patterns": [
+            "knowledge distillation",
+            "model distillation",
+            "parameter-efficient",
+            "parameter efficient",
+            "low-rank adaptation",
+            "\\blora\\b"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "efficiency.serve",
+          "name": "推理加速与服务",
+          "description": "Efficient language model inference and serving, speculative decoding, KV cache compression, attention kernels, batching and inference acceleration.",
+          "patterns": [
+            "speculative decoding",
+            "kv cache",
+            "kv-cache",
+            "model serving",
+            "inference acceleration",
+            "inference efficiency",
+            "attention kernel",
+            "flashattention"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "efficiency.train",
+          "name": "分布式训练与计算系统",
+          "description": "Distributed training systems, large scale training, communication efficient learning, pipeline parallelism, federated learning systems and hardware acceleration.",
+          "patterns": [
+            "distributed training",
+            "pipeline parallel",
+            "tensor parallel",
+            "training system",
+            "communication-efficient",
+            "federated learning",
+            "hardware acceleration"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "efficiency.architecture",
+          "name": "高效架构、稀疏与 MoE",
+          "description": "Efficient neural architectures, mixture of experts, sparse neural networks, efficient attention, state space sequence models and linear attention. Related topics: efficient transformers, efficient transformer.",
+          "patterns": [
+            "mixture of experts",
+            "mixture-of-experts",
+            "state space model",
+            "state-space model",
+            "linear attention",
+            "sparse attention",
+            "efficient attention",
+            "efficient architecture",
+            "efficient transformers",
+            "efficient transformer"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "trust",
+      "name": "安全与可信",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "trust.factual",
+          "name": "幻觉与事实可靠性",
+          "description": "Hallucination detection and mitigation in language models, factuality, factual consistency, trustworthy language generation and knowledge editing.",
+          "patterns": [
+            "hallucination",
+            "factuality",
+            "factual consistency",
+            "knowledge editing",
+            "factual knowledge",
+            "truthfulness"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "trust.attack",
+          "name": "攻击、防御与模型安全",
+          "description": "Adversarial attacks and defenses, jailbreaks, prompt injection, backdoor attacks, data poisoning and security of machine learning models.",
+          "patterns": [
+            "adversarial attack",
+            "adversarial defense",
+            "jailbreak",
+            "prompt injection",
+            "backdoor",
+            "data poisoning",
+            "model security"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "trust.privacy",
+          "name": "隐私、遗忘与数据保护",
+          "description": "Differential privacy, privacy preserving machine learning, machine unlearning, membership inference attacks, training data extraction and data protection.",
+          "patterns": [
+            "differential privacy",
+            "privacy-preserving",
+            "machine unlearning",
+            "membership inference",
+            "data extraction attack",
+            "privacy protection"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "trust.fair",
+          "name": "公平、偏见与社会影响",
+          "description": "Algorithmic fairness, social bias in machine learning, responsible AI, AI ethics, social impact and equitable machine learning.",
+          "patterns": [
+            "fairness",
+            "social bias",
+            "algorithmic bias",
+            "responsible ai",
+            "ai ethics",
+            "societal",
+            "social impact"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "trust.explain",
+          "name": "可解释性与机制分析",
+          "description": "Interpretability, explainable artificial intelligence, mechanistic interpretability, feature attribution, circuit analysis and explaining neural model decisions.",
+          "patterns": [
+            "interpretability",
+            "explainability",
+            "explainable",
+            "feature attribution",
+            "circuit analysis",
+            "mechanistic"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "trust.evaluate",
+          "name": "鲁棒评测与可靠性",
+          "description": "Robustness evaluation, out of distribution detection, model calibration, reliability benchmarks, model auditing and trustworthy evaluation protocols.",
+          "patterns": [
+            "out-of-distribution detection",
+            "robustness evaluation",
+            "model calibration",
+            "model auditing",
+            "reliability benchmark",
+            "evaluation protocol",
+            "adversarial robustness"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    },
+    {
+      "id": "science",
+      "name": "AI for Science",
+      "minimum_primary": 200,
+      "topics": [
+        {
+          "id": "science.biology",
+          "name": "蛋白质、基因与生命科学",
+          "description": "Machine learning for biology, protein structure prediction, protein design, genomics, gene expression, biological sequences and single cell analysis.",
+          "patterns": [
+            "protein",
+            "genomic",
+            "gene expression",
+            "single-cell",
+            "single cell",
+            "biological sequence",
+            "rna",
+            "dna"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "science.chemistry",
+          "name": "分子、药物与材料",
+          "description": "Machine learning for molecules, molecular generation, drug discovery, chemical reaction prediction, material discovery and molecular dynamics.",
+          "patterns": [
+            "molecular",
+            "molecule",
+            "drug discovery",
+            "chemical reaction",
+            "materials discovery",
+            "material design",
+            "crystal structure"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "science.physics",
+          "name": "物理建模与科学计算",
+          "description": "Physics informed neural networks, partial differential equations, neural operators, physical simulation, fluid dynamics and scientific computing.",
+          "patterns": [
+            "physics-informed",
+            "partial differential",
+            "neural operator",
+            "fluid dynamics",
+            "physical simulation",
+            "scientific computing",
+            "pde"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "science.earth",
+          "name": "气候、地球与遥感",
+          "description": "Weather forecasting, climate modeling, earth observation, remote sensing, satellite imagery and environmental science with machine learning.",
+          "patterns": [
+            "weather",
+            "climate",
+            "remote sensing",
+            "satellite",
+            "earth observation",
+            "geospatial",
+            "precipitation"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "science.health",
+          "name": "医学、健康与神经科学",
+          "description": "Clinical machine learning, medical imaging, healthcare, electronic health records, brain modeling, neuroscience and medical diagnosis.",
+          "patterns": [
+            "medical",
+            "clinical",
+            "healthcare",
+            "health care",
+            "brain",
+            "neuroscience",
+            "patient",
+            "radiology",
+            "pathology"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "science.time",
+          "name": "时间序列与信号预测",
+          "description": "Time series forecasting, temporal data modeling, multivariate time series, signal processing, anomaly detection for time series and dynamical forecasting.",
+          "patterns": [
+            "time series",
+            "time-series",
+            "temporal forecasting",
+            "signal processing",
+            "multivariate forecasting",
+            "temporal anomaly"
+          ],
+          "minimum_primary": 30
+        },
+        {
+          "id": "science.discovery",
+          "name": "科学发现与交叉应用",
+          "description": "Automated scientific discovery, symbolic regression, scientific experimentation, AI for mathematics and astronomy, machine learning applications to economics and other sciences.",
+          "patterns": [
+            "scientific discovery",
+            "symbolic regression",
+            "astronomy",
+            "astrophysics",
+            "scientific experiment",
+            "ai for science",
+            "economic forecasting"
+          ],
+          "minimum_primary": 30
+        }
+      ]
+    }
+  ],
+  "policy": {
+    "primary": "One main category and one main topic per retained record; uncertain assignments stay retained and are flagged.",
+    "secondary": "Up to two additional topic tags; coverage statistics default to exclusive primary labels.",
+    "minimum_note": "200 per category and 30 per topic are adjustable starter-library coverage targets, not an estimate of field output or quality.",
+    "scope": "AI and computer science; interdisciplinary applications are grouped under AI for Science."
+  }
+}

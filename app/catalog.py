@@ -14,7 +14,7 @@ from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from fastapi import HTTPException
 
-from . import core, discovery
+from . import core, discovery, taxonomy
 
 MAX_BYTES = 20 * 1024 * 1024
 MAX_ROWS = 25000
@@ -70,6 +70,7 @@ def init_catalog(seed=True):
         if not con.execute("SELECT 1 FROM catalog_aliases WHERE alias LIKE 'title:%' LIMIT 1").fetchone():
             for existing in con.execute("SELECT id,title FROM catalog_papers").fetchall():
                 con.execute("INSERT OR IGNORE INTO catalog_aliases VALUES(?,?)", ("title:" + title_key(existing["title"]), existing["id"]))
+    _reindex_directions()
     if seed:
         manifest = SEED_DIR / "manifest.json"
         paths = []
@@ -104,6 +105,15 @@ def init_catalog(seed=True):
             except (HTTPException, OSError):
                 # One bad seed must not make existing reading unavailable.
                 continue
+
+
+def _reindex_directions():
+    """Reclassify metadata atomically, preserving IDs, provenance and old tags."""
+    with core.db() as con:
+        con.execute("BEGIN IMMEDIATE")
+        rows = con.execute("SELECT id,data,updated_at FROM catalog_papers WHERE COALESCE(json_extract(data,'$.classification.version'),'') != ?", (taxonomy.VERSION,)).fetchall()
+        for row in rows:
+            _save_paper(con, row["id"], json.loads(row["data"]), row["updated_at"])
 
 
 def _migrate_legacy_seed():
@@ -400,6 +410,7 @@ def normalize_row(row, defaults=None):
         for key in ("hf_upvotes", "github_stars") if result[key] is not None
     }
     result["source_record_count"] = len(provenance)
+    result["classification"] = taxonomy.classify(title, result["abstract"], result["directions"])
     result["url_role"] = "paper" if result.get("url") or result.get("pdf_url") else "missing"
     target = _reading_target(result)
     result["resolve"] = {"action": "resolve" if target else "search", "url": target, "query": title}
@@ -486,6 +497,7 @@ def _merge(old, new):
         stamps["github_stars"] = new_stamps.get("github_stars")
     result["metrics_observed_at"] = stamps
     result["source_record_count"] = len(result.get("provenance", []))
+    result["classification"] = taxonomy.classify(result["title"], result["abstract"], result.get("directions", []))
     result["url_role"] = "paper" if result.get("url") or result.get("pdf_url") else "missing"
     target = _reading_target(result)
     result["resolve"] = {"action": "resolve" if target else "search", "url": target, "query": result.get("title", "")}
@@ -494,7 +506,10 @@ def _merge(old, new):
 
 def _save_paper(con, identifier, data, now):
     data["id"] = identifier
+    data["classification"] = taxonomy.classify(data["title"], data["abstract"], data.get("directions", []))
     search_text = " ".join([data["title"], data["abstract"], *data["authors"], *data["institutions"], data.get("arxiv_id") or "", data.get("doi") or "", *data.get("directions", []), *[c["conference"] for c in data.get("conferences", [])]]).casefold()
+    search_text += " " + " ".join(item["category_name"] + " " + (item["topic_name"] if item["topic_id"] else "")
+                                    for item in [data["classification"]["primary"], *data["classification"]["secondary"]]).casefold()
     con.execute("""INSERT INTO catalog_papers(id,data,search_text,title,year,published_at,hf_upvotes,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,search_text=excluded.search_text,
         title=excluded.title,year=excluded.year,published_at=excluded.published_at,hf_upvotes=excluded.hf_upvotes,updated_at=excluded.updated_at""",
@@ -506,6 +521,7 @@ def _save_paper(con, identifier, data, now):
     con.execute("DELETE FROM catalog_facets WHERE paper_id=?", (identifier,))
     con.execute("DELETE FROM catalog_conferences WHERE paper_id=?", (identifier,))
     facets = [(identifier, "direction", label) for label in data.get("directions", [])]
+    facets += [(identifier, kind, value) for kind, value in taxonomy.facets(data["classification"])]
     con.executemany("INSERT OR IGNORE INTO catalog_facets VALUES(?,?,?)", facets)
     con.executemany("INSERT OR IGNORE INTO catalog_conferences VALUES(?,?,?,?,?,?)", [(identifier, c["conference"], c["year"], c["presentation"], c["verification_status"], c["selectivity"]) for c in data.get("conferences", [])])
 
@@ -598,7 +614,7 @@ def import_bytes(content, filename="catalog.json", *, skip_existing=False):
     return {"id": event_id, "name": name, "status": "succeeded", "row_count": len(rows), **counts, "created_at": now, "datasets": datasets}
 
 
-def search(q="", year=None, source="all", institution="", sort="votes", page=1, page_size=24, *, conference="", conference_year=None, presentation="", verification_status="all", direction=""):
+def search(q="", year=None, source="all", institution="", sort="votes", page=1, page_size=24, *, conference="", conference_year=None, presentation="", verification_status="all", direction="", topic=""):
     where, args = [], []
     for term in q.strip().casefold().split()[:20]:
         where.append("p.search_text LIKE ? ESCAPE '\\'")
@@ -621,8 +637,16 @@ def search(q="", year=None, source="all", institution="", sort="votes", page=1, 
         where.append("EXISTS(SELECT 1 FROM catalog_conferences c WHERE c.paper_id=p.id AND " + " AND ".join(conference_terms) + ")")
         args.extend(conference_args)
     if direction and direction != "all":
-        where.append("EXISTS(SELECT 1 FROM catalog_facets f WHERE f.paper_id=p.id AND f.kind='direction' AND f.value=?)")
-        args.append(direction)
+        category = taxonomy.category_id(direction)
+        where.append("EXISTS(SELECT 1 FROM catalog_facets f WHERE f.paper_id=p.id AND f.kind=? AND f.value=?)")
+        args.extend(["category" if category else "direction", category or direction])
+    if topic and topic != "all":
+        child = taxonomy.topic_id(topic)
+        parent = taxonomy.category_id(direction)
+        if child and parent and taxonomy.TOPICS[child][0]["id"] != parent:
+            where.append("0=1")
+        where.append("EXISTS(SELECT 1 FROM catalog_facets f WHERE f.paper_id=p.id AND f.kind='topic' AND f.value=?)")
+        args.append(child or topic)
     condition = " WHERE " + " AND ".join(where) if where else ""
     orders = {"votes": "p.hf_upvotes IS NULL,p.hf_upvotes DESC,p.published_at DESC,p.id", "published": "p.published_at IS NULL,p.published_at DESC,p.year DESC,p.id", "title": "p.title COLLATE NOCASE,p.id", "stars": "json_extract(p.data,'$.github_stars') IS NULL,json_extract(p.data,'$.github_stars') DESC,p.id"}
     if sort not in orders:
@@ -641,13 +665,14 @@ def stats():
         institutions = [dict(r) for r in con.execute("SELECT name,count(*) count FROM catalog_institutions GROUP BY name ORDER BY count DESC,name")]
         coverage = [json.loads(r[0]) for r in con.execute("SELECT data FROM catalog_datasets ORDER BY rowid DESC LIMIT 1000")]
         directions = [dict(r) for r in con.execute("SELECT value name,count(*) count FROM catalog_facets WHERE kind='direction' GROUP BY value ORDER BY count DESC,value")]
+        direction_counts = {(r["kind"], r["value"]): r["count"] for r in con.execute("SELECT kind,value,count(*) count FROM catalog_facets WHERE kind IN ('category','topic','primary_category','primary_topic') GROUP BY kind,value")}
         conference_facets = {}
         for label, column in (("conferences", "name"), ("conference_years", "year"), ("presentations", "presentation"), ("verification_statuses", "verification_status"), ("selectivities", "selectivity")):
             conference_facets[label] = [dict(r) for r in con.execute(f"SELECT {column} name,count(DISTINCT paper_id) count FROM catalog_conferences GROUP BY {column} ORDER BY count DESC,{column}")]
         source_records = con.execute("SELECT COALESCE(sum(json_array_length(data,'$.provenance')),0) FROM catalog_papers").fetchone()[0]
         last = con.execute("SELECT * FROM catalog_imports ORDER BY created_at DESC,rowid DESC LIMIT 1").fetchone()
         errors = [dict(r) for r in con.execute("SELECT * FROM catalog_imports WHERE status='failed' ORDER BY created_at DESC,rowid DESC LIMIT 10")]
-    return {"total": total, "source_records": source_records, "by_year": years, "sources": sources, "institutions": institutions, "directions": directions, **conference_facets, "coverage": coverage, "last_import": dict(last) if last else None, "import_errors": errors}
+    return {"total": total, "source_records": source_records, "by_year": years, "sources": sources, "institutions": institutions, "directions": directions, "direction_taxonomy": taxonomy.snapshot(direction_counts), **conference_facets, "coverage": coverage, "last_import": dict(last) if last else None, "import_errors": errors}
 
 
 def observed_hf_weeks():

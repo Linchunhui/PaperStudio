@@ -20,7 +20,7 @@ from xml.etree import ElementTree
 import httpx
 from fastapi import HTTPException
 
-from . import core
+from . import core, taxonomy
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 CACHE_SECONDS = 1800
@@ -59,13 +59,15 @@ def classify_directions(title, abstract=""):
         "note": "依据标题/已有摘要的关键词初标，待人工确认；未按方向移除论文。"}}
 
 
-def direction_view(items, direction=""):
+def direction_view(items, direction="", topic=""):
     enriched = [{**item, **classify_directions(item.get("title"), item.get("snippet", item.get("abstract", "")))} for item in items]
+    for item in enriched:
+        item["classification"] = taxonomy.classify(item.get("title"), item.get("snippet", item.get("abstract", "")), item["directions"])
     counts = {}
     for item in enriched:
         for label in item["directions"]:
             counts[label] = counts.get(label, 0) + 1
-    return [item for item in enriched if not direction or direction == "all" or direction in item["directions"]], [{"name": label, "count": count} for label, count in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
+    return [item for item in enriched if taxonomy.matches(item, direction, topic)], [{"name": label, "count": count} for label, count in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
 
 
 class ProviderError(Exception):
@@ -403,7 +405,7 @@ def _rank(items, interests):
     return sorted(items, key=lambda x: (x["score_signals"]["rule_score"], x.get("published_at") or ""), reverse=True)
 
 
-async def search(query: str, scope: str, page: int, direction: str = "") -> dict:
+async def search(query: str, scope: str, page: int, direction: str = "", topic: str = "") -> dict:
     if scope == "web":
         _search_settings()  # Missing configuration is an actionable HTTP 409.
         fetcher = lambda: _web(query, page)
@@ -412,16 +414,21 @@ async def search(query: str, scope: str, page: int, direction: str = "") -> dict
     else:
         fetcher = lambda: _arxiv(query, page)
     items, status = await _load(scope, fetcher, query=query, page=page)
-    items, facets = direction_view(_deduplicate(items), direction)
-    return {"items": items, "directions": facets, "direction_filter_scope": "当前返回页", "statuses": [status], "query": query, "page": page}
+    items, facets = direction_view(_deduplicate(items))
+    hierarchy = taxonomy.item_snapshot(items)
+    has_more = bool(items)
+    items = [item for item in items if taxonomy.matches(item, direction, topic)]
+    return {"items": items, "directions": facets, "direction_taxonomy": hierarchy, "direction_filter_scope": "当前返回页", "statuses": [status], "query": query, "page": page, "has_more": has_more}
 
 
-async def feed(sources: list[str], interests: list[str], limit: int, refresh: bool, direction: str = "") -> dict:
+async def feed(sources: list[str], interests: list[str], limit: int, refresh: bool, direction: str = "", topic: str = "") -> dict:
     async def one(source):
         fetcher = {"hf": _hf, "qbitai": _qbitai, "jiqizhixin": lambda: _web("site:jiqizhixin.com/articles 论文", fresh=True, source="jiqizhixin")}[source]
         return await _load(source, fetcher, refresh=refresh)
     results = await asyncio.gather(*(one(source) for source in dict.fromkeys(sources)))
     items = _deduplicate([item for rows, _ in results for item in rows])
-    items, facets = direction_view(items, direction)
-    return {"items": _rank(items, interests)[:limit], "directions": facets, "direction_filter_scope": "当前来源返回集合", "statuses": [status for _, status in results], "fetched_at": core.now()}
+    items, facets = direction_view(items)
+    hierarchy = taxonomy.item_snapshot(items)
+    items = [item for item in items if taxonomy.matches(item, direction, topic)]
+    return {"items": _rank(items, interests)[:limit], "directions": facets, "direction_taxonomy": hierarchy, "direction_filter_scope": "当前来源返回集合", "statuses": [status for _, status in results], "fetched_at": core.now()}
 

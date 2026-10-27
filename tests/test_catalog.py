@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app import catalog, core, discovery
+from app import taxonomy
 from app.catalog_routes import router
 
 
@@ -27,6 +28,76 @@ def upload(client, papers, dataset=None):
 
 def record(**fields):
     return {"title": "OCR <script> is data", "arxiv_id": "2501.12345", "published_at": "2025-01-20", "hf_upvotes": 100, "institutions": ["Example Lab"], **fields}
+
+
+def test_two_level_filters_include_secondary_and_preserve_unknown_records(client):
+    records = [
+        {"title": "OCR for multilingual documents", "institutions": ["Example Lab"], "year": 2024},
+        {"title": "PDF parsing with visual question answering"},
+        {"title": "Table structure recognition"},
+        {"title": "Unspecified mechanisms"},
+    ]
+    assert upload(client, records).status_code == 200
+    results = client.get("/api/catalog").json()
+    assert results["total"] == 4
+    query = lambda **params: client.get("/api/catalog", params=params).json()
+    assert query(direction="document")["total"] == 3
+    assert query(topic="document.layout")["items"][0]["title"] == records[1]["title"]
+    assert query(direction="OCR / 文档智能", topic="文字识别与文字图像处理", institution="Example Lab", year=2024)["total"] == 1
+    assert query(direction="document", topic="nlp.language")["total"] == 0
+    assert query(topic="does-not-exist")["total"] == 0
+    assert query(direction="unclassified")["total"] == 1
+    stats = client.get("/api/catalog/stats").json()
+    categories = stats["direction_taxonomy"]["categories"]
+    assert sum(c["count"] for c in categories) == 4
+    assert sum(t["count"] for c in categories for t in c["topics"]) == 3
+    assert len([c for c in categories if c["id"] != "unclassified"]) == 13
+    assert sum(len(c["topics"]) for c in categories) == 76
+    assert next(c for c in categories if c["id"] == "document")["match_count"] == 3
+    assert stats["source_records"] == 4
+
+
+def test_existing_catalog_backfill_is_atomic_idempotent_and_preserves_sources(client, monkeypatch):
+    rows = [{"title": "OCR evidence", "directions": ["Legacy source tag"], "year": 2023}, {"title": "PDF parsing evidence"}]
+    upload(client, rows)
+    with core.db() as con:
+        con.execute("UPDATE catalog_papers SET data=json_remove(data,'$.classification')")
+        con.execute("DELETE FROM catalog_facets WHERE kind != 'direction'")
+        before = [dict(r) for r in con.execute("SELECT id,data,created_at,updated_at FROM catalog_papers ORDER BY id")]
+    classify = taxonomy.classify
+    calls = []
+    def fail_second(*args):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("interrupted migration")
+        return classify(*args)
+    monkeypatch.setattr(taxonomy, "classify", fail_second)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        catalog.init_catalog(seed=False)
+    with core.db() as con:
+        assert [dict(r) for r in con.execute("SELECT id,data,created_at,updated_at FROM catalog_papers ORDER BY id")] == before
+    monkeypatch.setattr(taxonomy, "classify", classify)
+    catalog.init_catalog(seed=False)
+    after = client.get("/api/catalog").json()["items"]
+    for original in before:
+        new = next(p for p in after if p["id"] == original["id"])
+        assert {k: v for k, v in new.items() if k != "classification"} == json.loads(original["data"])
+    assert client.get("/api/catalog", params={"direction": "Legacy source tag"}).json()["total"] == 1
+    monkeypatch.setattr(taxonomy, "classify", lambda *a: pytest.fail("already-current rows must not be reclassified"))
+    catalog.init_catalog(seed=False)
+    assert client.get("/api/catalog").json()["items"] == after
+    with core.db() as con:
+        assert con.execute("SELECT count(*) FROM papers").fetchone()[0] == 0
+
+
+def test_new_metadata_reclassifies_without_stale_topic_facets(client):
+    row = {"title": "A generic research model", "arxiv_id": "2601.33333"}
+    upload(client, [row])
+    assert client.get("/api/catalog", params={"direction": "unclassified"}).json()["total"] == 1
+    upload(client, [{**row, "abstract": "We study document layout analysis and PDF parsing."}])
+    assert client.get("/api/catalog", params={"direction": "unclassified"}).json()["total"] == 0
+    assert client.get("/api/catalog", params={"topic": "document.layout"}).json()["total"] == 1
+    assert upload(client, [{**row, "abstract": "We study document layout analysis and PDF parsing."}]).json()["unchanged"] == 1
 
 
 def test_seed_and_upload_are_idempotent_without_touching_library(client, tmp_path, monkeypatch):

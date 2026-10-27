@@ -216,3 +216,19 @@ def test_direction_filter_marks_heuristics_and_retains_unknown_topic():
     selected, _ = discovery.direction_view([a, b], '机器人与具身智能')
     assert [p['id'] for p in selected] == [a['id']]
     assert {f['name'] for f in facets} >= {'未分类', '机器人与具身智能'}
+
+
+def test_discovery_topics_filter_real_results_and_keep_unfiltered_facets(client, monkeypatch):
+    network(monkeypatch, lambda request: httpx.Response(200, json=HF))
+    params = {"q": "OCR", "scope": "hf", "direction": "document", "topic": "document.ocr"}
+    result = client.get("/api/discovery/search", params=params).json()
+    assert len(result["items"]) == 1
+    assert result["items"][0]["classification"]["primary"]["topic_id"] == "document.ocr"
+    parent = next(c for c in result["direction_taxonomy"]["categories"] if c["id"] == "document")
+    assert parent["count"] == 1
+    empty = client.get("/api/discovery/search", params={**params, "topic": "document.layout"}).json()
+    assert empty["items"] == [] and empty["has_more"]
+    assert empty["direction_taxonomy"] == result["direction_taxonomy"]
+    assert result["direction_filter_scope"] == "当前返回页"
+    feed = client.get("/api/discovery/feed", params={"sources": "hf", "direction": "document", "topic": "document.ocr"}).json()
+    assert len(feed["items"]) == 1 and feed["direction_taxonomy"]["version"]
