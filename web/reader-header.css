@@ -1,0 +1,36 @@
+/* Document controls share the title row; the sidebar is the research assistant. */
+.continuous-reader .reader-header{display:flex;align-items:center;flex-wrap:nowrap;gap:12px;min-height:68px;height:auto;padding:10px 16px}
+.continuous-reader .reader-heading{flex:1 1 240px;min-width:100px}
+.continuous-reader .reader-heading h1{font-size:1rem;line-height:1.5;margin:0;max-width:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reader-header-toolbar{display:flex;align-items:center;gap:12px;flex:0 0 auto;min-width:0}
+.reader-display-switches{display:flex;align-items:center;gap:12px}
+.reader-header-toolbar .reader-switch{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:4px 0;border:0;border-radius:4px;background:transparent;box-shadow:none;color:var(--reader-ink,#20372e);font-size:.8125rem;font-weight:400;line-height:1.5;white-space:nowrap;cursor:pointer}
+.reader-switch-track{position:relative;display:inline-block;flex:0 0 34px;width:34px;height:20px;border:1px solid #9aa99f;border-radius:999px;box-sizing:border-box;background:#d4dcd6;transition:background-color 160ms ease,border-color 160ms ease}
+.reader-switch-thumb{position:absolute;display:block;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #172d2340;transform:translateX(0);transition:transform 160ms ease}
+.reader-switch[aria-checked=true] .reader-switch-track{background:var(--reader-accent,#24664e);border-color:var(--reader-accent,#24664e)}
+.reader-switch[aria-checked=true] .reader-switch-thumb{transform:translateX(14px)}
+.reader-header-toolbar :is(.reader-page-controls,.reader-zoom-controls){display:flex;align-items:center;flex-wrap:nowrap;gap:4px;color:var(--reader-muted,#566a60);font-size:.8125rem;white-space:nowrap}
+.reader-header-toolbar .reader-page-controls{padding-left:12px;border-left:1px solid var(--reader-border,#d8e0d9)}
+.reader-header-toolbar .reader-page-controls label{display:flex;align-items:center;gap:5px;font-size:inherit}
+.reader-header-toolbar .reader-page-controls input{width:42px;min-height:36px;padding:4px;text-align:center;font:inherit;color:var(--reader-ink,#20372e);border:1px solid #80988a;border-radius:5px;background:#fff}
+.reader-header-toolbar .reader-zoom-controls select{width:70px;height:36px;padding:4px;font:inherit;color:var(--reader-ink,#20372e);border:1px solid #80988a;border-radius:5px;background:#fff}
+.reader-header-toolbar .icon-button{display:inline-flex;align-items:center;justify-content:center;width:32px;min-width:32px;height:36px;padding:0;border:0;background:transparent;color:var(--reader-accent,#24664e)}
+.reader-header-toolbar .icon-button svg{width:18px;height:18px}
+.reader-header-toolbar .icon-button:hover{background:#edf4ee}
+.reader-header-toolbar .icon-button:disabled{opacity:.35;cursor:default}
+.reader-header-toolbar .reader-narrow-document-controls{gap:4px;flex:0 0 auto}
+.reader-header-toolbar .reader-narrow-document-controls .button{min-height:36px;padding:6px 10px;font-size:.8125rem}
+.reader-header-toolbar :is(button,input,select):focus-visible{outline:2px solid var(--ui-focus,#24664e);outline-offset:3px}
+@media(max-width:1150px){.continuous-reader #reading-status{display:none}.continuous-reader .reader-header{gap:10px;padding-inline:12px}.reader-header-toolbar,.reader-display-switches{gap:10px}}
+@media(max-width:900px){
+  .continuous-reader .reader-header{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:6px 10px;padding:8px 12px}
+  .continuous-reader .reader-back{grid-column:1;grid-row:1}
+  .continuous-reader .reader-heading{grid-column:2;grid-row:1;min-width:0}
+  .continuous-reader .reader-heading h1{font-size:.875rem;max-width:none}
+  .continuous-reader .reader-tools-open{grid-column:3;grid-row:1;min-height:44px}
+  .reader-header-toolbar{grid-column:1/-1;grid-row:2;width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;padding:2px 2px 5px;gap:14px}
+  .reader-header-toolbar>*{flex-shrink:0}
+  .reader-header-toolbar .icon-button{width:40px;min-width:40px;height:44px}
+  .reader-header-toolbar .reader-page-controls input,.reader-header-toolbar .reader-zoom-controls select{height:40px;min-height:40px}
+}
+@media(prefers-reduced-motion:reduce){.reader-switch-track,.reader-switch-thumb{transition:none}}

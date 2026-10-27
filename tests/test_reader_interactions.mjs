@@ -82,15 +82,20 @@ assert.equal(JSON.stringify(context.readerAreaRect({x:.7,y:.8},{x:.2,y:.3})),JSO
 assert.equal(context.readerAreaRect({x:.2,y:.3},{x:.201,y:.301}),null);
 assert.equal(context.readerAreaRect({x:Infinity,y:.3},{x:.4,y:.5}),null);
 const shell=between('  function shell()', '  function updateReadingLayout(');
-assert.ok(shell.indexOf('class="reading-sidebar"')<shell.indexOf('id="translation-view-toggle"'));
-assert.ok(shell.indexOf('class="reading-sidebar"')<shell.indexOf('id="reading-mode-toggle"'));
-assert.match(shell,/<button id="reading-mode-toggle"[^>]*aria-pressed="false"/);
-assert.match(shell,/<button id="translation-view-toggle"[^>]*aria-pressed="false"/);
-assert.ok(shell.indexOf('class="reading-sidebar"')<shell.indexOf('id="reader-zoom"'));
+assert.ok(shell.indexOf('id="translation-view-toggle"')<shell.indexOf('</header>'));
+assert.ok(shell.indexOf('id="reading-mode-toggle"')<shell.indexOf('</header>'));
+assert.match(shell,/<button id="reading-mode-toggle"[^>]*role="switch"[^>]*aria-checked="false"/);
+assert.match(shell,/<button id="translation-view-toggle"[^>]*role="switch"[^>]*aria-checked="false"/);
+assert.ok(shell.indexOf('id="reader-zoom"')<shell.indexOf('</header>'));
 assert.ok(shell.includes('id="reader-research-panel"'));
+assert.ok(shell.indexOf('id="reader-page"')<shell.indexOf('</header>'));
+assert.ok(shell.indexOf('id="paragraph-link-toggle"')<shell.indexOf('</header>'));
+assert.equal((shell.match(/role="switch"/g)||[]).length,3);
+assert.doesNotMatch(shell,/id="reader-project"|id="translation-download"|id="translation-progress"|id="translation-file"|class="reader-settings"|>翻译全文<|>导入译文<|>下载译文<|>原始 PDF ↗</);
+
 assert.ok(source.includes("listen(app,'contextmenu'"));
 assert.ok(source.includes("event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')"));
-console.log('PASS: selection never opens note/model/menu, explicit actions, private draft preservation, reflow PDF anchors, version-safe evidence jumps, area selection and right sidebar settings');
+console.log('PASS: selection never opens note/model/menu, explicit actions, private draft preservation, reflow PDF anchors, version-safe evidence jumps, area selection and header controls');
 
 // Existing translated PDF text is shown by page with an explicit alignment label;
 // replacing the translation never reuses stale text against new coordinates.
@@ -140,3 +145,21 @@ context.openResearch('qa',{side:'original',source_sha:'sha',page:2,quote:'Select
 assert.equal(openedSheets,1);assert.equal(context.state.tab,'qa');
 assert.equal(researchEvents.at(-1).detail.selection.quote,'Selected question');
 console.log('PASS: initial mobile reading stays clear; explicit selected Q&A opens its tab');
+
+// Display state updates the semantic switch and thumb CSS without provider work.
+const switchNodes=new Map(['reading-mode-toggle','translation-view-toggle','paragraph-link-toggle'].map(id=>[id,{attrs:{},setAttribute(key,value){this.attrs[key]=value;}}]));
+Object.assign(context,{
+ state:{readingMode:'pdf',translationView:false,narrowSide:'original',paragraphEnabled:true},
+ qs:selector=>selector==='.continuous-reader'?{classList:{toggle(){}}}:switchNodes.get(selector.slice(1)),
+ app:{querySelectorAll(){return [];}},
+});
+vm.runInContext(between('  function updateReadingLayout(', '  function applySidebarWidth('),context);
+context.updateReadingLayout();
+assert.equal(switchNodes.get('reading-mode-toggle').attrs['aria-checked'],'false');
+assert.equal(switchNodes.get('translation-view-toggle').attrs['aria-checked'],'false');
+context.state.readingMode='reflow';context.state.translationView=true;context.state.paragraphEnabled=false;
+context.updateReadingLayout();
+assert.equal(switchNodes.get('reading-mode-toggle').attrs['aria-checked'],'true');
+assert.equal(switchNodes.get('translation-view-toggle').attrs['aria-checked'],'true');
+assert.equal(switchNodes.get('paragraph-link-toggle').attrs['aria-checked'],'false');
+console.log('PASS: removed project/translation section, title-row controls and semantic sliding switches');

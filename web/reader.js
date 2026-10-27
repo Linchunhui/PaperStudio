@@ -212,22 +212,20 @@ export async function mountReader({paperId,projectId}) {
   function shell() {
     document.title=`${state.paper.title} · PaperStudio`;
     app.innerHTML=`<div class="reader-app continuous-reader reading-pdf translation-off">
-      <header class="reader-header"><a class="reader-back" href="/?view=library&project=${encodeURIComponent(state.projectId)}" title="返回论文库" aria-label="返回论文库"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6M8 12h12"/></svg></a><div class="reader-heading"><h1>${esc(state.paper.title)}</h1><span>${esc(projectPath(state.projectId)||'当前项目')}</span></div><span id="reading-status" class="pill">${statuses[membership().status]||'待读'}</span><button id="reader-tools-open" class="button reader-tools-open" data-reader-action="open-tools" aria-controls="reader-tools-panel" aria-expanded="false">阅读工具</button></header>
-      <div class="reader-columns continuous-columns"><section class="document-pane" aria-label="论文连续阅读"><div id="document-scroll" class="document-scroll" tabindex="0" aria-label="连续 PDF 页面滚动区"><div id="document-pages" class="document-pages"></div></div></section>
-      <div id="reader-resizer" class="reader-resizer" role="separator" aria-orientation="vertical" aria-label="调整阅读区与侧栏宽度，左右方向键微调，双击复位" aria-controls="reader-tools-panel" tabindex="0"></div><div class="reader-tools-backdrop" id="reader-tools-backdrop" hidden aria-hidden="true"></div><aside class="reading-sidebar" id="reader-tools-panel" tabindex="-1" aria-label="阅读设置、问答与笔记"><div class="reader-tools-heading"><h2>阅读工具</h2><button class="icon-button" data-reader-action="close-tools" aria-label="关闭阅读工具"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-        <details class="reader-settings"><summary>阅读设置 <span>模式、翻译与页面</span></summary><div class="reader-toolbar">
-          <div class="reader-display-buttons" role="group" aria-label="阅读显示开关"><button id="reading-mode-toggle" class="button reader-toggle" data-reader-action="toggle-reading" aria-pressed="false"><span>重排阅读</span><strong>已关闭</strong></button><button id="translation-view-toggle" class="button reader-toggle" data-reader-action="toggle-translation" aria-pressed="false"><span>对照翻译</span><strong>已关闭</strong></button></div>
+      <header class="reader-header"><a class="reader-back" href="/?view=library&project=${encodeURIComponent(state.projectId)}" title="返回论文库" aria-label="返回论文库"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6M8 12h12"/></svg></a><div class="reader-heading"><h1 title="${esc(state.paper.title)}">${esc(state.paper.title)}</h1></div><span id="reading-status" class="pill">${statuses[membership().status]||'待读'}</span>
+        <div class="reader-header-toolbar" role="group" aria-label="阅读器控制">
+          <div class="reader-display-switches" role="group" aria-label="阅读显示"><button id="reading-mode-toggle" class="reader-switch" type="button" role="switch" aria-checked="false" data-reader-action="toggle-reading"><span>重排阅读</span><span class="reader-switch-track" aria-hidden="true"><span class="reader-switch-thumb"></span></span></button><button id="translation-view-toggle" class="reader-switch" type="button" role="switch" aria-checked="false" data-reader-action="toggle-translation"><span>对照翻译</span><span class="reader-switch-track" aria-hidden="true"><span class="reader-switch-thumb"></span></span></button></div>
+          <div class="reader-page-controls" role="group" aria-label="页面导航"><button class="icon-button" data-reader-action="prev" aria-label="跳到上一页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><label><input id="reader-page" aria-label="定位页码" type="number" min="1" max="${state.paper.page_count}" value="${state.page}"><span>/ ${state.paper.page_count}</span></label><button class="icon-button" data-reader-action="next" aria-label="跳到下一页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button></div>
+          <div class="reader-zoom-controls" role="group" aria-label="页面缩放"><button class="icon-button" data-reader-action="zoom-out" aria-label="缩小页面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button><select id="reader-zoom" aria-label="页面缩放">${[75,100,125,150,175,200].map(z=>`<option value="${z}" ${z===state.zoom?'selected':''}>${z}%</option>`).join('')}</select><button class="icon-button" data-reader-action="zoom-in" aria-label="放大页面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button></div>
+          <button id="paragraph-link-toggle" class="reader-switch pdf-bilingual-only" type="button" role="switch" aria-checked="true" data-reader-action="toggle-link"><span>段落联动</span><span class="reader-switch-track" aria-hidden="true"><span class="reader-switch-thumb"></span></span></button>
           <div class="reader-narrow-document-controls pdf-only bilingual-only" role="group" aria-label="阅读文档"><button class="button" data-reader-side="original" aria-pressed="true">原文</button><button class="button" data-reader-side="translation" aria-pressed="false">译文</button></div>
-          <div class="reader-page-controls"><button class="icon-button" data-reader-action="prev" aria-label="跳到上一页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><label>第 <input id="reader-page" aria-label="定位页码" type="number" min="1" max="${state.paper.page_count}" value="${state.page}"> / ${state.paper.page_count} 页</label><button class="icon-button" data-reader-action="next" aria-label="跳到下一页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button></div>
-          <div class="reader-zoom-controls"><button class="icon-button" data-reader-action="zoom-out" aria-label="缩小页面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button><select id="reader-zoom" aria-label="页面缩放">${[75,100,125,150,175,200].map(z=>`<option value="${z}" ${z===state.zoom?'selected':''}>${z}%</option>`).join('')}</select><button class="icon-button" data-reader-action="zoom-in" aria-label="放大页面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button><span class="continuous-mode-label">连续滚动</span></div>
-          <button id="paragraph-link-toggle" class="button reader-toggle paragraph-link-toggle pdf-bilingual-only" data-reader-action="toggle-link" aria-pressed="true"><span>段落联动</span><strong>已开启</strong></button>
-          <div class="reader-context"><label>当前项目<select id="reader-project" aria-label="当前阅读项目">${memberships(state.paper).map(m=>`<option value="${esc(m.project_id)}" ${m.project_id===state.projectId?'selected':''}>${esc(projectPath(m.project_id)||m.project_name||m.project_id)}</option>`).join('')}</select></label></div>
-          <div class="reader-settings-actions"><button class="button small" data-reader-action="translate">翻译全文</button><button class="button small" data-reader-action="upload-translation">导入译文</button><button class="button small reflow-only" data-reader-action="translate-reading-page">翻译本页段落</button><button id="paragraph-retranslate" class="button small" data-reader-action="retranslate" hidden>重新翻译全文</button><a id="translation-download" class="button small" href="/api/papers/${pid}/file?side=translation" download hidden>下载译文</a><a class="button small" href="/api/papers/${pid}/file?side=original" target="_blank" rel="noopener">原始 PDF ↗</a></div><div class="reader-settings-status"><span id="translation-progress"></span><span id="reading-batch-status" role="status"></span></div>
-        </div></details>
+        </div><button id="reader-tools-open" class="button reader-tools-open" data-reader-action="open-tools" aria-controls="reader-tools-panel" aria-expanded="false">阅读助手</button></header>
+      <div class="reader-columns continuous-columns"><section class="document-pane" aria-label="论文连续阅读"><div id="document-scroll" class="document-scroll" tabindex="0" aria-label="连续 PDF 页面滚动区"><div id="document-pages" class="document-pages"></div></div></section>
+      <div id="reader-resizer" class="reader-resizer" role="separator" aria-orientation="vertical" aria-label="调整阅读区与侧栏宽度，左右方向键微调，双击复位" aria-controls="reader-tools-panel" tabindex="0"></div><div class="reader-tools-backdrop" id="reader-tools-backdrop" hidden aria-hidden="true"></div><aside class="reading-sidebar" id="reader-tools-panel" tabindex="-1" aria-label="论文解读、问答与笔记"><div class="reader-tools-heading"><h2>阅读助手</h2><button class="icon-button" data-reader-action="close-tools" aria-label="关闭阅读工具"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
         <div class="reading-tabs" role="tablist" aria-label="阅读助手"><button id="reader-tab-ai" role="tab" aria-controls="reading-sidebar-body" aria-selected="true" tabindex="0" data-reader-tab="ai" class="active">解读</button><button id="reader-tab-qa" role="tab" aria-controls="reading-sidebar-body" aria-selected="false" tabindex="-1" data-reader-tab="qa">问答</button><button id="reader-tab-notes" role="tab" aria-controls="reading-sidebar-body" aria-selected="false" tabindex="-1" data-reader-tab="notes">笔记 <span id="note-count">${state.notes.length}</span></button></div>
         <div class="reading-sidebar-body" id="reading-sidebar-body" role="tabpanel" aria-labelledby="reader-tab-ai" tabindex="0"><div id="paragraph-translation-panel" class="paragraph-translation-panel" hidden aria-live="polite"></div><div id="reader-dialogue"><div id="reader-interpretation"><div id="reader-insights"></div><div class="reader-interpretation-actions"><button class="button small" data-research-view="knowledge">结构化解读</button><button class="button small" data-research-view="lineage">研究脉络</button></div></div><div id="reader-research-panel" class="reader-research-panel" hidden></div><div id="reader-archive"></div></div><div id="reader-notes" hidden></div></div><button class="reader-finish" data-reader-action="finish">读完，整理笔记</button>
       </aside></div><div id="selection-context-menu" class="selection-context-menu" role="menu" aria-label="选段操作" hidden><button role="menuitem" data-selection-action="translate">翻译选区</button><button role="menuitem" data-selection-action="qa">针对选区提问</button><button role="menuitem" data-selection-action="summary">总结</button><button role="menuitem" data-selection-action="explain">解释</button><button role="menuitem" data-selection-action="note">笔记</button><button role="menuitem" data-selection-action="figure">图表讲解</button><button role="menuitem" data-selection-action="formula">公式讲解</button><button role="menuitem" data-selection-action="region">选择图表 / 公式区域</button></div>
-      <footer class="reader-footer"><span id="reader-hint" role="status" aria-live="polite">拖选句子或段落后右键，选择翻译、问答、总结、解释或笔记。也可按 Shift+F10。</span><span>默认不翻译 · 笔记默认私有</span></footer><input id="translation-file" type="file" accept="application/pdf,.pdf" hidden></div>`;
+      <footer class="reader-footer"><span id="reader-hint" role="status" aria-live="polite">拖选句子或段落后右键，选择翻译、问答、总结、解释或笔记。也可按 Shift+F10。</span><span>默认不翻译 · 笔记默认私有</span></footer></div>`;
     qs('#document-pages').innerHTML=state.manifest.map(p=>`<section class="page-pair" data-pair-page="${p.page}" aria-label="第 ${p.page} 页"><article class="page-slot"><div class="pair-page-label">原文 · ${p.page}</div><div id="page-original-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article><article class="page-slot"><div class="pair-page-label">译文 · ${p.page}</div><div id="page-translation-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article><article id="reading-page-${p.page}" class="reflow-page reflow-only" data-reading-page="${p.page}"><div class="reflow-page-heading">第 ${p.page} 页</div><p class="muted">正在重排原文…</p></article></section>`).join('');
     for(const element of app.querySelectorAll('.page-pair'))state.pairs.set(Number(element.dataset.pairPage),element);
     const scroll=qs('#document-scroll'); scroll.addEventListener('scroll',handleScroll,{passive:true});
@@ -237,8 +235,8 @@ export async function mountReader({paperId,projectId}) {
     for(const element of state.pairs.values())observer.observe(element);
     toolSheet=createReaderToolSheet({panel:qs('#reader-tools-panel'),opener:qs('#reader-tools-open'),backdrop:qs('#reader-tools-backdrop'),background:[qs('.reader-header'),qs('.document-pane'),qs('.reader-footer')]});
     state.narrow=window.innerWidth<=900;toolSheet.setNarrow(state.narrow);setupSidebarResize();
-    renderSidebar(); updateToolbar(); updateTranslationProgress(); updateReadingLayout();
-    if(state.paper.can_edit===false)for(const button of app.querySelectorAll('[data-reader-action=translate],[data-reader-action=upload-translation],[data-reader-action=retranslate]')){button.disabled=true;button.title='当前论文为只读权限';}
+    renderSidebar(); updateToolbar(); updateReadingLayout();
+    if(state.paper.can_edit===false)for(const button of app.querySelectorAll('[data-reader-action=translate],[data-reader-action=retranslate]')){button.disabled=true;button.title='当前论文为只读权限';}
   }
   function updateReadingLayout() {
     const root=qs('.continuous-reader');if(!root)return;
@@ -253,10 +251,9 @@ export async function mountReader({paperId,projectId}) {
       button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
     }
     for(const [id,on] of [['reading-mode-toggle',state.readingMode==='reflow'],['translation-view-toggle',state.translationView],['paragraph-link-toggle',state.paragraphEnabled]]){
-      const button=qs('#'+id);if(button){button.setAttribute('aria-pressed',String(on));const status=button.querySelector('strong');if(status)status.textContent=on?'已开启':'已关闭';}
+      const button=qs('#'+id);if(button){button.setAttribute('aria-checked',String(on));}
     }
-    const label=qs('.continuous-mode-label');if(label)label.textContent=state.readingMode==='reflow'?'连续滚动 · 文字重排':state.translationView?'连续滚动 · 左右对照':'连续滚动 · 原始 PDF';
-    const retry=qs('#paragraph-retranslate');if(retry&&(state.readingMode!=='pdf'||!state.translationView))retry.hidden=true;
+
   }
   function applySidebarWidth(value) {
     const columns=qs('.continuous-columns'),handle=qs('#reader-resizer');if(!columns||!handle)return;
@@ -524,12 +521,6 @@ export async function mountReader({paperId,projectId}) {
     if(qs('#reader-zoom'))qs('#reader-zoom').value=String(state.zoom);
     if(qs('#reading-status'))qs('#reading-status').textContent=statuses[membership().status]||'待读';
   }
-  function updateTranslationProgress() {
-    const ready=(state.translations.pages||[]).filter(p=>p.status==='ready').length;
-    const failed=(state.translations.pages||[]).filter(p=>p.status==='failed').length;
-    qs('#translation-progress').textContent=state.translations.mode==='none'?'尚未生成':`${ready} / ${state.paper.page_count} 页就绪${failed?' · '+failed+' 页失败':''}`;
-    qs('#translation-download').hidden=!state.translations.download_ready;
-  }
   function rowTop(page) {
     const row=state.pairs.get(page),scroll=qs('#document-scroll');
     return row ? row.getBoundingClientRect().top-scroll.getBoundingClientRect().top+scroll.scrollTop : 0;
@@ -725,7 +716,7 @@ export async function mountReader({paperId,projectId}) {
     if(side==='original'){host.innerHTML='<div class="page-state"><div class="loading-ring"></div><p>正在读取原始 PDF…</p></div>';return;}
     const item=translationPage(page),status=item?.status||'queued';
     if(state.translations.mode==='none'){
-      host.innerHTML=`<div class="page-state translation-state"><span class="translation-symbol">文 ⇄ A</span><strong>第 ${page} 页译文待生成</strong><p>原文已可阅读。翻译完成一页后会直接显示在这里。</p><button class="button small" data-reader-action="translate">开始逐页翻译</button><button class="text-button" data-reader-action="upload-translation">导入已有译文 PDF</button></div>`;
+      host.innerHTML=`<div class="page-state translation-state"><span class="translation-symbol">文 ⇄ A</span><strong>第 ${page} 页译文待生成</strong><p>原文已可阅读。翻译完成一页后会直接显示在这里。</p><button class="button small" data-reader-action="translate">开始逐页翻译</button></div>`;
     }else if(status==='failed'){
       const retryJob=state.jobs.find(j=>j.kind==='translate'&&j.translation_run_id===state.translations.active_run_id&&['failed','interrupted','cancelled'].includes(j.status));
       host.innerHTML=`<div class="page-state translation-state failed"><strong>第 ${page} 页翻译失败</strong><p>${esc(item?.error||'这一页未生成，其他已完成页面仍可阅读。')}</p>${retryJob?`<button class="button small" data-job-retry="${esc(retryJob.id)}">重试未完成页面</button>`:'<p>其他页面处理结束后，可在解读页签的已保存任务中重试。</p>'}</div>`;
@@ -1094,7 +1085,7 @@ export async function mountReader({paperId,projectId}) {
 
       if(state.readingMode==='pdf'&&state.translationView&&(state.near.has(page)||pageProtected(page)))work.push(loadPageSide('translation',page,{force:true}));
     }
-    updateTranslationProgress();renderParagraphHighlights();
+    renderParagraphHighlights();
     // Page frames never change dimensions and the original column stays mounted.
     // Completed translation pages cannot reset scrolling or invalidate other pages.
     await Promise.all(work);
@@ -1121,7 +1112,7 @@ export async function mountReader({paperId,projectId}) {
       // A job can become retryable without changing the failed page's status.
       for(const page of state.near){if(state.readingMode==='pdf'&&state.translationView&&translationPage(page)?.status==='failed')placeholder('translation',page);}
     }catch(error){
-      if(!state.disposed&&sequence===refreshSequence){const badge=qs('#translation-progress');if(badge)badge.textContent='状态更新失败，稍后重试';}
+      if(!state.disposed&&sequence===refreshSequence){const hint=qs('#reader-hint');if(hint)hint.textContent='阅读状态更新失败，稍后重试。';}
     }finally{
       if(sequence===refreshSequence){
         refreshing=false;
@@ -1130,7 +1121,7 @@ export async function mountReader({paperId,projectId}) {
     }
   }
   async function createJob(kind,annotationId,force=false) {
-    if(isAdmin()&&kind==='translate'&&state.capabilities.translation_configured===false)throw new Error('翻译服务尚未配置。可先点击“导入译文”使用已有单语译文 PDF。');
+    if(isAdmin()&&kind==='translate'&&state.capabilities.translation_configured===false)throw new Error('翻译服务尚未配置，请联系管理员。');
     if(isAdmin()&&kind!=='translate'&&state.capabilities.ai_configured===false){state.tab='ai';renderSidebar();throw new Error('AI 模型尚未配置，笔记已保存，可先导出 Markdown。');}
     const body={paper_id:paperId,project_id:state.projectId,kind};if(kind==='brief')body.mode=state.mode;if(annotationId)body.annotation_id=annotationId;
     if(kind==='translate'&&state.paper?.can_edit===false)throw new Error('当前论文为只读权限，可阅读现有译文或按段翻译。');
@@ -1206,19 +1197,6 @@ export async function mountReader({paperId,projectId}) {
       if(event.target.id==='reader-zoom')await setZoom(event.target.value);
       if(event.target.id==='brief-mode')state.mode=event.target.value;
       if(event.target.id==='note-visibility')state.visibility=event.target.value==='shared'?'shared':'private';
-      if(event.target.id==='reader-project'){
-        if(!canReplaceDraft()){event.target.value=state.projectId;return;}
-        const nextProject=event.target.value;event.target.disabled=true;
-        try{readPosition();if(!await persistPosition()){event.target.value=state.projectId;return;}location.href=`/read/${pid}?project=${encodeURIComponent(nextProject)}`;}finally{event.target.disabled=false;}
-      }
-      if(event.target.id==='translation-file'){
-        if(state.paper.can_edit===false)throw new Error('当前论文为只读权限，无法替换译文。');
-        const file=event.target.files[0];if(!file)return;
-        if(file.size>50*1024*1024)throw new Error('译文 PDF 上限为 50 MB。');
-        const data=new FormData();data.set('file',file);toast('正在保存译文 PDF…');
-        state.paper=await api('/papers/'+pid+'/translation',{method:'POST',body:data});
-        await refreshTranslationPages();toast('译文已就绪，原文位置和笔记草稿均保留。');event.target.value='';
-      }
     }catch(error){toast(error.message);}
   });
   listen(app,'click',async event=>{
@@ -1287,7 +1265,6 @@ export async function mountReader({paperId,projectId}) {
         case'prev':await goToPage(state.page-1);break;
         case'next':await goToPage(state.page+1);break;
         case'zoom-in':case'zoom-out':await setZoom(state.zoom+(button.dataset.readerAction==='zoom-in'?25:-25));break;
-        case'upload-translation':qs('#translation-file').click();break;
         case'translate':button.disabled=true;await createJob('translate');break;
         case'retranslate':button.disabled=true;await createJob('translate',undefined,true);break;
         case'discard-selection':state.selection=null;state.pendingSelection=null;state.draft='';state.editId=null;window.getSelection()?.removeAllRanges();renderSidebar();renderHighlights();prunePages();break;
