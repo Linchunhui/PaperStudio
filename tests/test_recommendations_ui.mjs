@@ -2,13 +2,14 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
-const source = fs.readFileSync(new URL('../web/recommendations-ui.js', import.meta.url), 'utf8').replace(/^export /gm, '');
+const source = fs.readFileSync(new URL('../web/recommendations-ui.js', import.meta.url), 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
 class Fields {
   constructor(form) { this.data = form?.data || {}; }
   get(key) { return this.data[key] ?? ''; }
   getAll(key) { return Array.isArray(this.data[key]) ? this.data[key] : []; }
 }
 const context = vm.createContext({console, URLSearchParams, AbortController, FormData: Fields});
+vm.runInContext(fs.readFileSync(new URL('../web/paper-insights.js',import.meta.url),'utf8').replace(/^export /gm,''),context);
 vm.runInContext(source, context);
 const {mountRecommendations, loadProfile} = vm.runInContext('({mountRecommendations,loadProfile})', context);
 const empty = {version: 0, configured: false, category_ids: [], topic_ids: [], institutions: [], conferences: [], keywords: [], freshness_days: 30};
@@ -47,7 +48,7 @@ const el = key => {
 };
 const root = {innerHTML: '', querySelector(key) { return key === '#recommendation-profile-form' ? form : el(key); },
   contains() { return true; }, addEventListener(k, fn) { handlers.set(k, fn); }, removeEventListener(k) { handlers.delete(k); }};
-const malicious = {id: 'one', title: '<img src=x onerror=1>', url: 'javascript:alert(1)', abstract_preview: '<script>bad()</script>', reasons: ['<b>untrusted</b>'], position: 1, score_signals: {age_days: null}};
+const malicious = {id: 'one', title: '<img src=x onerror=1>', url: 'javascript:alert(1)', abstract_preview: '<script>bad()</script>', structured:{research_problem:'<script>Interpretation</script>',methods:['Safe method'],experiments:['Small benchmark'],source_version:'curated-v1',evidence:['Source excerpt']}, reasons: ['<b>untrusted</b>'], position: 1, score_signals: {age_days: null}};
 const second = {id: 'two', title: 'Another paper', url: 'https://example.org/paper', reasons: [], position: 2};
 const result = (items, next_cursor = null) => ({items, request_id: 'request-1', next_cursor, fallback: null});
 let profile = {...empty, version: 1, configured: true}, behavior, saveFailure = false, delaySave = false, resolveSave;
@@ -68,7 +69,7 @@ const api = async (path, request = {}) => {
 };
 const state = {};
 const controller = mountRecommendations(root, {api, esc, safeURL, toast: m => notifications.push(m),
-  onOpen: (item, options) => opened.push({item, options}), onProfile() {}, legacy: {}, state});
+  onOpen: (item, options) => opened.push({item, options}), onAdd: item => opened.push({item,options:{read:false}}), onProfile() {}, legacy: {}, state});
 await settle();
 assert.match(root.innerHTML, /我的推荐偏好/);
 assert.match(root.innerHTML, /整个文档领域/);
@@ -82,6 +83,18 @@ const click = async dataset => {
 };
 await click({recOpen: 'one'});
 assert.equal(opened[0].item.id, 'one'); assert.equal(opened[0].options.read, true);
+
+await click({recImport:'one'});
+assert.equal(opened.at(-1).item.id,'one');assert.equal(opened.at(-1).options.read,false);
+assert.match(el('#recommendation-results').innerHTML,/结构化解读|推荐理由/);
+assert.match(el('#recommendation-results').innerHTML,/Safe method/);
+assert.match(el('#recommendation-results').innerHTML,/&lt;script&gt;Interpretation&lt;\/script&gt;/);
+assert.doesNotMatch(el('#recommendation-results').innerHTML,/加入项目并处理/);
+const completeAbstract='A long original abstract. '.repeat(40);
+const expanded=context.insightMarkup({abstract:completeAbstract},{compact:true});
+assert.ok(expanded.includes(completeAbstract),'The collapsed preview retains the complete abstract');
+assert.match(expanded,/<details><summary>展开完整摘要/);
+assert.doesNotMatch(context.insightMarkup({}),/结构化解读/,'Missing interpretation is not fabricated');
 
 behavior = () => result([malicious, second]);
 await click({recAction: 'more'});

@@ -101,6 +101,7 @@ def _public(row: dict) -> dict:
         except HTTPException:
             pass
     return {key: row.get(key) for key in ("id", "project_id", "paper_id", "owner_id", "kind", "status", "stage", "question", "error", "visibility", "created_at", "updated_at")} | {
+        "selection": json.loads(row.get("payload") or "{}").get("selection"),
         "result": json.loads(row["result_json"]) if row.get("result_json") else None,
         "coverage": json.loads(row.get("coverage") or "{}"), "can_edit": own, "can_share": can_share}
 

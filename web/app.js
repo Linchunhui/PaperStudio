@@ -108,10 +108,10 @@ function mountAuthentication(setupRequired=false) {
 }
 
 function installResearchEvents(){
-  let panelModule;
-  window.addEventListener('paperstudio:research',async event=>{try{panelModule??=await import('./research-ui.js');await panelModule.openResearchPanel(event.detail);}catch(error){toast(error.message);}});
-  for(const name of ['paperstudio:reader-unmount','paperstudio:reader-paused','paperstudio:reader-disposed'])window.addEventListener(name,()=>panelModule?.disposeResearchPanel());
-  window.addEventListener('pagehide',()=>panelModule?.disposeResearchPanel());
+  let panelModule, opening=0;
+  window.addEventListener('paperstudio:research',async event=>{const version=++opening;try{panelModule??=await import('./research-ui.js');if(version===opening)await panelModule.openResearchPanel(event.detail);}catch(error){toast(error.message);}});
+  for(const name of ['paperstudio:reader-unmount','paperstudio:reader-paused','paperstudio:reader-disposed'])window.addEventListener(name,()=>{opening++;panelModule?.disposeResearchPanel();});
+  window.addEventListener('pagehide',()=>{opening++;panelModule?.disposeResearchPanel();});
 }
 
 async function mountWorkspace() {
@@ -361,7 +361,7 @@ async function mountWorkspace() {
     app.innerHTML=`<a class="skip-link" href="#main-content">跳到主要内容</a><div class="workspace-layout workspace-v2 ${state.navOpen?'nav-open':''}">${sidebar()}<button class="workspace-nav-backdrop" data-action="close-navigation" aria-label="关闭导航" tabindex="-1" hidden></button><main id="main-content" class="workspace-main" tabindex="-1"><header class="workspace-topbar"><button id="workspace-nav-toggle" class="workspace-nav-toggle button" data-action="toggle-navigation" aria-controls="workspace-navigation" aria-expanded="false">${icons.menu}<span>导航</span></button><span>研究空间 <span class="crumb-separator">/</span> ${titles[state.view]}</span><span class="pill">PaperStudio</span></header><div class="workspace-content">${contents[state.view]()}</div></main></div>`;
     if(state.view==='recommendations')import('./recommendations-ui.js').then(module=>{
       const root=qs('#recommendations-panel');if(recMount!==recommendationMount||!root)return;
-      recommendationPanel=module.mountRecommendations(root,{api,esc,safeURL,toast,onOpen:(item,options)=>openIndexedPaper({...item,catalog_paper_id:item.id},options),onProfile:syncRecommendationProfile,legacy:legacyRecommendationProfile(),state:recommendationState});
+      recommendationPanel=module.mountRecommendations(root,{api,esc,safeURL,toast,onOpen:(item,options)=>openIndexedPaper({...item,catalog_paper_id:item.id},{...options,quickAdd:true}),onAdd:async item=>{const {openProjectPicker}=await import('./project-picker.js');openProjectPicker({item:{...item,catalog_paper_id:item.id},api,esc,safeURL,toast,projectId:state.projectId||authSession.user.inbox_id});},onProfile:syncRecommendationProfile,legacy:legacyRecommendationProfile(),state:recommendationState});
     }).catch(error=>{const root=qs('#recommendations-panel');if(recMount===recommendationMount&&root)root.innerHTML='<p role="alert">'+esc(error.message)+'</p>';});
     updateURL();updateImportCount();navigationState(state.navOpen);if(focusHeading)qs('.workspace-content h1')?.focus?.();else restoreFormFocus(previous);if(state.view==='groups')import('./collaboration-ui.js').then(module=>module.mountGroups(qs('#groups-panel'))).catch(error=>toast(error.message));
   }
@@ -406,15 +406,18 @@ async function mountWorkspace() {
   }
   function syncProcessing(form){const p=state.importer.processing;p.translate=form.elements.translate.checked;p.guide=form.elements.guide.checked;p.brief_modes=['abstract','cards','summary'].filter(key=>form.elements[key].checked);p.parse=form.elements.parse.checked||p.guide||p.brief_modes.length>0;form.elements.parse.checked=p.parse;const hint=qs('#import-parse-hint');if(hint)hint.textContent=(p.guide||p.brief_modes.length?'已选择全文 AI 任务，会先完成全文解析。':'下载与保存 PDF 不依赖模型。')+(isAdmin&&!state.capabilities.ai_configured?' 当前模型未配置，AI 步骤会等待配置，原文仍可入库。':'');}
   async function browseCatalogCategory(type,name){for(const field of ['catalogQuery','catalogYear','catalogInstitution','catalogConference','catalogConferenceYear','catalogPresentation','catalogDirection','catalogTopic'])state[field]='';state.catalogSource='all';state.catalogVerification='all';if(type==='institution')state.catalogInstitution=name;else if(type==='conference')state.catalogConference=name;state.catalogPage=1;await setView('catalog');}
-  async function openIndexedPaper(item,{read=false}={}){
+  async function openIndexedPaper(item,{read=false,quickAdd=false}={}){
     if(!item)return;
     const url=safeURL(item.resolve?.url)||safeURL(item.pdf_url)||safeURL(item.url);
+    const quickPick=async()=>{const {openProjectPicker}=await import('./project-picker.js');return openProjectPicker({item,api,esc,safeURL,toast,projectId:state.projectId||authSession.user.inbox_id});};
+    if(quickAdd&&(!read||item.resolve?.action==='search'||!url))return quickPick();
     if(item.resolve?.action==='search'||!url){state.searchQuery=item.resolve?.query||item.title;state.searchScope='arxiv';state.searchPage=1;state.discoveryMode='search';state.view='discover';render();await loadDiscovery();toast('正在查找独立论文入口；不会下载会议日程。');return;}
     if(!read){openImport({url,title:item.title,catalogPaperId:item.catalog_paper_id});return;}
     const projectId=state.projectId||authSession.user.inbox_id||state.projects[0]?.id;
     const result=await api('/resolve',{method:'POST',body:{url,project_id:projectId,title:item.title,...(item.catalog_paper_id?{catalog_paper_id:item.catalog_paper_id}:{})}});
     const paperId=result.paper_id||result.paper?.id;
     if(paperId){location.assign(`/read/${encodeURIComponent(paperId)}?project=${encodeURIComponent(result.project_id||projectId)}`);return;}
+    if(quickAdd)return quickPick();
     if(result.action==='search'){state.searchQuery=result.query||item.title;state.searchScope='arxiv';state.searchPage=1;state.discoveryMode='search';state.view='discover';render();await loadDiscovery();return;}
     openImport({url:safeURL(result.source?.download_url)||url,title:item.title,projectId,catalogPaperId:item.catalog_paper_id});
   }

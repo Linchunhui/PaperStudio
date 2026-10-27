@@ -72,7 +72,7 @@ assert.equal(await context.jumpToEvidence(citation),true);assert.deepEqual(revea
 assert.equal(JSON.stringify(context.state.evidence.rects),JSON.stringify([rect]));
 
 // The production sidebar renderer exposes the selected tab to assistive tech.
-const body=element(),noteCount={},noteTab=element(),aiTab=element();noteTab.dataset={readerTab:'notes'};aiTab.dataset={readerTab:'ai'};
+const body=element(),noteCount={dataset:{},querySelector(){return null;}},noteTab=element(),aiTab=element();noteTab.dataset={readerTab:'notes'};aiTab.dataset={readerTab:'ai'};
 Object.assign(context,{
  state:{tab:'ai',notes:[]},document:{activeElement:null},notesArea:()=>'<p>notes</p>',aiArea:()=>'<p>AI</p>',
  qs:selector=>selector==='#reading-sidebar-body'?body:noteCount,app:{querySelectorAll:()=>[noteTab,aiTab]},

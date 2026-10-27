@@ -108,3 +108,35 @@ context.renderExistingPageTranslation(2);assert.equal(translationHidden,false);a
 context.translationPage=()=>({status:'ready',source_sha:'replacement'});
 context.renderExistingPageTranslation(2);assert.equal(translationHidden,true);assert.equal(pageClass,false);
 console.log('PASS: existing PDF translation reflow is page-aligned and rejects replaced versions');
+
+// The reader has exactly three tabs and no persistent region-tool buttons.
+assert.equal((shell.match(/role="tab"/g)||[]).length,3);
+assert.match(shell,/data-reader-tab="qa"/);
+assert.doesNotMatch(shell,/data-region-kind=|解读与总结/);
+const regionCalls=[];
+Object.assign(context,{
+ state:{paper:{sha256:'sha'},projectId:'project',areaMode:'region',areaDraft:{pointerId:8,page:2,source_sha:'sha',rect:exact}},
+ areaPointerMove(){},clearArea(){context.state.areaDraft=null;context.state.areaMode=null;},
+ renderHighlights(){},paragraphHint(){},openResearch(){regionCalls.push('provider');}
+});
+vm.runInContext(between('  function areaPointerUp(', '  async function jumpToEvidence('),context);
+context.areaPointerUp({pointerId:8,preventDefault(){},stopPropagation(){}});
+assert.equal(context.state.pendingSelection.region,true);
+assert.equal(context.state.pendingSelection.page,2);
+assert.equal(regionCalls.length,0,'Releasing a region only selects; right-click action is required to explain');
+console.log('PASS: three reader tabs and explicit post-selection region actions');
+
+let openedSheets=0;const researchEvents=[];
+Object.assign(context,{
+ state:{projectId:'project',narrow:true,tab:'notes',paper:{sha256:'sha'}},paperId:'paper',
+ isCurrentAnchor:()=>true,renderSidebar(){},qs:()=>({hidden:true}),toolSheet:{open(){openedSheets++;}},
+ window:{dispatchEvent:event=>researchEvents.push(event)},CustomEvent:class{constructor(name,options){this.type=name;this.detail=options.detail;}}
+});
+vm.runInContext(between('  function openResearch(', '  async function selectionAction('),context);
+context.openResearch('knowledge',null,{autoGenerate:false});
+assert.equal(openedSheets,0,'Initial saved-insights read must not open the mobile tools sheet');
+assert.equal(researchEvents.at(-1).detail.autoGenerate,false);
+context.openResearch('qa',{side:'original',source_sha:'sha',page:2,quote:'Selected question',rects:[exact]});
+assert.equal(openedSheets,1);assert.equal(context.state.tab,'qa');
+assert.equal(researchEvents.at(-1).detail.selection.quote,'Selected question');
+console.log('PASS: initial mobile reading stays clear; explicit selected Q&A opens its tab');

@@ -1,3 +1,4 @@
+import {insightMarkup} from './paper-insights.js';
 // Account preferences and a catalog feed. Dependencies come from the workspace
 // so this module can be mounted/disposed without a second global event owner.
 export const preferenceFields = ['category_ids', 'topic_ids', 'institutions', 'conferences', 'keywords'];
@@ -22,7 +23,7 @@ export async function loadProfile(api, legacy = {}) {
   return profile;
 }
 
-export function mountRecommendations(root, {api, esc, safeURL, toast, onOpen, onProfile, legacy, state = {}}) {
+export function mountRecommendations(root, {api, esc, safeURL, toast, onOpen, onAdd, onProfile, legacy, state = {}}) {
   let disposed = false, sequence = 0, initialization = 0, controller, saving = false;
   state.items ??= [];
   state.category ??= '';
@@ -72,9 +73,9 @@ export function mountRecommendations(root, {api, esc, safeURL, toast, onOpen, on
         return `<article class="discovery-card" data-recommendation-id="${esc(item.id)}" data-request-id="${esc(state.result?.request_id || '')}" data-position="${Number(item.position)}">
           <div class="discovery-card-meta">${primary ? `<span class="pill green">${esc(primary.topic_name || primary.category_name)}</span>` : ''}<span>${esc(item.score_signals?.age_days != null ? String(item.published_at).slice(0, 10) : '发表日期待核验')}</span></div>
           <h2><button class="discovery-title title-button" data-rec-open="${esc(item.id)}">${esc(item.title)}</button></h2>
-          <p class="discovery-snippet">${esc(item.abstract_preview || '摘要待补充，可打开论文查看原文。')}</p>
-          <div class="recommend-reasons">${(item.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
-          <div class="discovery-card-actions"><button class="button primary small" data-rec-import="${esc(item.id)}">加入项目并处理</button>${url ? `<a class="text-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">论文原页 ↗</a>` : ''}<button class="text-button" data-rec-dismiss="${esc(item.id)}">不感兴趣</button></div></article>`;
+          ${insightMarkup(item,{compact:true})}
+          <div class="rec-reason-block"><h3>推荐理由</h3><div class="recommend-reasons">${(item.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div></div>
+          <div class="discovery-card-actions"><button class="button primary small" data-rec-import="${esc(item.id)}">加入项目</button>${url ? `<a class="text-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">论文原页 ↗</a>` : ''}<button class="text-button" data-rec-dismiss="${esc(item.id)}">不感兴趣</button></div></article>`;
       }).join('') || (!state.loading && !state.error ? '<div class="empty-state"><h2>暂无匹配论文</h2><p>可放宽筛选，或稍后查看新收录的论文。</p></div>' : '')}</div>
       ${state.result?.next_cursor ? `<div class="search-pagination"><button class="button" data-rec-action="more" ${state.loading ? 'disabled' : ''}>继续浏览</button></div>` : ''}`;
   }
@@ -127,7 +128,7 @@ export function mountRecommendations(root, {api, esc, safeURL, toast, onOpen, on
     if (!button || !root.contains(button)) return;
     try {
       const id = button.dataset.recOpen || button.dataset.recImport;
-      if (id) { await onOpen(state.items.find(item => item.id === id), {read: !!button.dataset.recOpen}); return; }
+      if (id) { const item = state.items.find(item => item.id === id); if (button.dataset.recImport) await onAdd(item); else await onOpen(item, {read:true}); return; }
       if (button.dataset.recDismiss) {
         button.disabled = true;
         await api(`/recommendations/${encodeURIComponent(button.dataset.recDismiss)}/dismiss`, {method: 'POST'});

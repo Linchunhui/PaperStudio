@@ -56,6 +56,7 @@
 | `DELETE /projects/{id}/shares/{group_id}` | 撤回共享 |
 | `GET/POST /projects`、`PATCH /projects/{id}` | 可见项目、创建、重命名和移动 |
 | `GET/POST /papers`、`GET /papers/{id}` | 可见已入库论文、上传和详情 |
+| `GET /papers/{id}/insights` | 校验 `project_id` 成员权限，返回来源关联的目录摘要与当前版本结构化解读 |
 | `POST /papers/{id}/projects` | 关联已有可访问论文到项目 |
 | `PATCH /papers/{id}/reading` | 当前用户的阅读状态与位置 |
 | `POST /papers/{id}/translation` | 导入页数一致的单语译文，须资源编辑权限 |

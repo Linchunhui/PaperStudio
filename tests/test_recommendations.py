@@ -339,3 +339,73 @@ def test_sessions_csrf_admin_ingestion_and_cross_account_profiles(workspace):
     from app.main import app
     anonymous = TestClient(app)
     assert anonymous.get('/api/recommendations').status_code == 401
+
+
+def test_feed_exposes_full_abstract_and_versioned_interpretation(client):
+    abstract = 'Full original abstract. ' * 60
+    paper = next(iter(put_papers({'title': 'OCR display', 'abstract': abstract}).values()))
+    body = StructuredInput(source_version='reviewed-v2', source_document_hash=embedding_document(paper)['text_hash'],
+                           research_problem='Recognize document text', methods=['Encoder'],
+                           experiments=['Compare on printed documents'], datasets=['Fixture set'],
+                           limitations=['Handwriting untested'], evidence=['Original abstract excerpt'])
+    vectors.store_structured(paper['id'], body)
+    result = client.get('/api/recommendations').json()['items'][0]
+    assert result['abstract'] == abstract.strip()
+    assert len(result['abstract_preview']) == 500
+    assert result['structured']['research_problem'] == body.research_problem
+    assert result['structured']['experiments'] == body.experiments
+    assert result['structured']['source_version'] == 'reviewed-v2'
+    assert result['structured']['evidence_scope'] == 'catalog-material'
+    assert result['reasons']
+    with core.db() as con:
+        con.execute("UPDATE recommendation_structured SET source_document_hash=?", ('0' * 64,))
+    assert client.get('/api/recommendations').json()['items'][0]['structured'] is None
+
+
+def test_reader_insights_use_verified_identity_and_project_access(workspace):
+    from test_auth_groups import upload
+    owner = workspace
+    user = setup(owner)
+    project = owner.post('/api/projects',json={'name':'Shared reading'}).json()['id']
+    group = new_group(owner)
+    member, _, _ = invite_user(owner, group, 'insightreader', 'viewer')
+    paper = upload(owner, project, 'OCR display')
+    # Upload uses content hashes, so use a different PDF for the unlinked record.
+    import fitz
+    with fitz.open() as pdf:
+        page = pdf.new_page(); page.insert_text((72,72), 'Different document')
+        different = pdf.tobytes()
+    unlinked = owner.post('/api/papers', files={'file':('other.pdf',different,'application/pdf')}, data={'project_id':project,'title':'OCR display'}).json()
+    with auth.as_user(user['id']):
+        entry = next(iter(put_papers({'title':'OCR display','arxiv_id':'2601.12345','abstract':'Catalog abstract'}).values()))
+        vectors.store_structured(entry['id'], StructuredInput(source_version='v1',source_document_hash=embedding_document(entry)['text_hash'],methods=['Public method']))
+        profiles.link_paper(paper['id'],entry['id'])
+    endpoint = f"/api/papers/{paper['id']}/insights"
+    assert member.get(endpoint,params={'project_id':project}).status_code == 404
+    response = owner.get(endpoint,params={'project_id':project})
+    assert response.status_code == 200 and response.json()['structured']['methods'] == ['Public method']
+    assert owner.get(f"/api/papers/{unlinked['id']}/insights",params={'project_id':project}).json()['structured'] is None
+    assert owner.post(f"/api/projects/{project}/shares",json={'group_id':group}).status_code == 201
+    assert member.get(endpoint,params={'project_id':project}).status_code == 200
+    assert member.get(endpoint,params={'project_id':member.get('/api/auth/session').json()['user']['inbox_id']}).status_code == 409
+    assert member.put('/api/admin/recommendations/content/'+entry['id'],json={'source_version':'v2','source_document_hash':embedding_document(entry)['text_hash']}).status_code == 403
+
+
+def test_quick_add_plan_saves_pdf_and_parses_without_ai(client, fake_network):
+    entry = next(iter(put_papers({'title':'Quick add OCR','arxiv_id':'2601.12345'}).values()))
+    payload = {'project_id':'inbox','url':'https://arxiv.org/abs/2601.12345','catalog_paper_id':entry['id'],
+               'processing':{'parse':True,'translate':False,'guide':False,'brief_modes':[]}}
+    first = client.post('/api/imports',json=payload)
+    assert first.status_code == 202, first.text
+    duplicate = client.post('/api/imports',json=payload)
+    assert duplicate.json()['id'] == first.json()['id']
+    drain()
+    task = imports.get_import(first.json()['id'])
+    assert task['paper_id'] and task['status'] == 'succeeded'
+    assert [step['kind'] for step in task['steps']] == ['download','parse']
+    assert client.get(f"/api/papers/{task['paper_id']}/insights",params={'project_id':'inbox'}).json()['catalog_paper_id'] == entry['id']
+    with core.db() as con:
+        assert con.execute('SELECT count(*) FROM jobs').fetchone()[0] == 0
+    repeated = client.post('/api/imports',json=payload).json()
+    assert repeated['paper_id'] == task['paper_id']
+    assert len(fake_network) == 1

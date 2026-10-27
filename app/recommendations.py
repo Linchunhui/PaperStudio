@@ -8,7 +8,7 @@ import re
 
 from fastapi import HTTPException
 from . import auth, core, taxonomy
-from .recommendation_content import CandidateProvider, RetrievalContext
+from .recommendation_content import CandidateProvider, RetrievalContext, presentation
 from .recommendation_profiles import get_profile
 
 logger = logging.getLogger(__name__)
@@ -227,7 +227,7 @@ def recommend(*, limit=24, cursor="", category_id="", topic_id="", providers: tu
                 item = json.loads(row[0])
                 # Keep provenance, raw source records and large abstracts out of feed responses.
                 public = {key: item.get(key) for key in ("id", "title", "url", "pdf_url", "resolve", "published_at", "year", "institutions", "conferences", "classification", "source_ids", "hf_upvotes")}
-                items.append({**public, "abstract_preview": (item.get("abstract") or "")[:500],
+                items.append({**public, **presentation(con, item), "abstract_preview": (item.get("abstract") or "")[:500],
                               "reasons": entry["reasons"], "position": offset, "score": entry["score"],
                               "score_signals": entry["score_signals"], "channels": entry["channels"]})
     return {"items": items, "next_cursor": f"{snapshot_id}:{offset}" if offset < len(rows) else None,

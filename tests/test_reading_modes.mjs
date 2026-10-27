@@ -125,7 +125,8 @@ const markup=context.readingContentMarkup({blocks,content:[{id:'first',type:'tex
 assert.match(markup,/Original &lt;script&gt; text/);
 assert.match(markup,/<figure class="reflow-visual"/);
 assert.match(markup,/width=4000/);
-assert.match(markup,/表格讲解/);
+assert.match(markup,/右键讲解/);
+assert.doesNotMatch(markup,/data-reading-visual=/);
 assert.doesNotMatch(markup,/javascript:|id="unsafe"/);
 console.log('PASS: exact sentence submission, deduplication and stale-load protection; source image/table markup');
 

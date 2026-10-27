@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 from . import auth, core, recommendations, taxonomy
 from . import recommendation_profiles as profiles
-from .recommendation_content import embedding_document
+from .recommendation_content import embedding_document, paper_presentation
 from . import recommendation_vectors as vectors
 
 router = APIRouter(prefix="/api", tags=["recommendations"])
@@ -38,6 +38,7 @@ class StructuredInput(BaseModel):
     tasks: list[Short] = Field(default_factory=list, max_length=50)
     methods: list[Short] = Field(default_factory=list, max_length=50)
     contributions: list[Annotated[str, Field(max_length=2000)]] = Field(default_factory=list, max_length=20)
+    experiments: list[Annotated[str, Field(max_length=2000)]] = Field(default_factory=list, max_length=50)
     datasets: list[Short] = Field(default_factory=list, max_length=50)
     limitations: list[Annotated[str, Field(max_length=2000)]] = Field(default_factory=list, max_length=20)
     evidence: list[Annotated[str, Field(max_length=2000)]] = Field(default_factory=list, max_length=50)
@@ -89,6 +90,11 @@ def options():
 @router.get("/recommendations")
 def feed(limit: int = Query(default=24, ge=1, le=60), cursor: str = Query(default="", max_length=100), category_id: str = Query(default="", max_length=100), topic_id: str = Query(default="", max_length=100)):
     return recommendations.recommend(limit=limit, cursor=cursor, category_id=category_id, topic_id=topic_id)
+
+
+@router.get("/papers/{paper_id}/insights")
+def insights(paper_id: str, project_id: str = Query(min_length=1, max_length=100)):
+    return paper_presentation(paper_id, project_id)
 
 
 @router.post("/recommendations/{catalog_paper_id}/dismiss")

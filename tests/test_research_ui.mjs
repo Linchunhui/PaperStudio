@@ -79,3 +79,28 @@ context.document.activeElement=oldField;const restore=context.retainInteraction(
 assert.equal(context.document.activeElement,replacement);assert.deepEqual([replacement.selectionStart,replacement.selectionEnd,replacement.selectionDirection],[2,5,'backward']);assert.equal(details[0].open,true);assert.equal(root.scrollTop,142);
 await context.openResearchPanel({project_id:'project',kind:'qa'});const panel=node('#reader-research-panel');panel.oncompositionstart();panel.oninput({target:{form:{id:'research-question-form'},name:'question',value:'输入法组合文字'}});const beforeComposition=panel.innerHTML;await context.refreshHistory();assert.equal(panel.innerHTML,beforeComposition,'Async updates wait for ongoing IME composition');panel.oncompositionend({target:{form:{id:'research-question-form'},name:'question',value:'输入法组合文字'}});assert.match(panel.innerHTML,/输入法组合文字/);
 console.log('PASS: unsubmitted question and filter drafts, knowledge result retention, keyboard selection, disclosure/scroll preservation and IME-safe refresh');
+
+// Reader tabs load saved interpretation, preserve a selected Q&A draft, and never
+// invoke generation just because a user browses a tab or returns to it.
+context.disposeResearchPanel();
+const readCalls=[];
+const storedKnowledge={id:'saved-knowledge',kind:'knowledge',status:'succeeded',result:{knowledge:[{category:'method',label:'Existing method',description:'Saved explanation',citations:[quote]}]}};
+const storedQA={id:'saved-qa',kind:'qa',status:'succeeded',question:'Earlier question',result:{claims:[]}};
+context.api=async(path,options={})=>{readCalls.push({path,options});if(path.startsWith('/research/jobs?'))return [storedQA,storedKnowledge];throw new Error('Unexpected write or lookup '+path);};
+const readerDetails={project_id:'project',paper_id:'p1',embedded:true,autoGenerate:false};
+await context.openResearchPanel({...readerDetails,kind:'knowledge',sessionTab:'ai'});
+assert.match(node('#reader-research-panel').innerHTML,/Existing method/);
+assert.match(node('#reader-research-panel').innerHTML,/Saved explanation/);
+assert.doesNotMatch(node('#reader-research-panel').innerHTML,/data-research-close|筛选项目内已提取知识|Earlier question/);
+await context.openResearchPanel({...readerDetails,kind:'qa',sessionTab:'qa',selection:selected});
+node('#reader-research-panel').oninput({target:{form:{id:'research-question-form'},name:'question',value:'保留选区问题草稿'}});
+await context.openResearchPanel({...readerDetails,kind:'knowledge',sessionTab:'ai',resume:true});
+assert.match(node('#reader-research-panel').innerHTML,/Existing method/);
+await context.openResearchPanel({...readerDetails,kind:'qa',sessionTab:'qa',resume:true});
+assert.match(node('#reader-research-panel').innerHTML,/保留选区问题草稿/);
+assert.match(node('#reader-research-panel').innerHTML,/First selected sentence/);
+assert.doesNotMatch(node('#reader-research-panel').innerHTML,/Existing method/);
+assert.equal(readCalls.filter(r=>r.options.method).length,0);
+await context.openResearchPanel({...readerDetails,project_id:'other-project',kind:'qa',sessionTab:'qa',resume:true});
+assert.doesNotMatch(node('#reader-research-panel').innerHTML,/保留选区问题草稿|First selected sentence/);
+console.log('PASS: saved structured interpretation, separate reader tabs, selected question drafts and project isolation without implicit model calls');

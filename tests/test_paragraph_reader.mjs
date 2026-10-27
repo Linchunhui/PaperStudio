@@ -177,7 +177,7 @@ const jobCalls=[];
 Object.assign(context,{
   paperId:'paper', isAdmin:()=>true,
   api:async(path,options)=>{jobCalls.push({path,options});return {id:'translation-job',status:'queued'};},
-  refreshJobs:async()=>{},renderSidebar:()=>{},toast:()=>{},
+  refreshJobs:async()=>{},renderSidebar:()=>{},activateReaderTab:tab=>{context.state.tab=tab;},toast:()=>{},
 });
 context.state.projectId='inbox';
 context.state.mode='abstract';
