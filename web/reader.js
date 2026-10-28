@@ -1,3 +1,5 @@
+import {feedbackMarkup,mountFeedback} from './paper-feedback.js';
+import {mountGraph,compactRelatedMarkup} from './graph-ui.js';
 import {mathText, mathMarkdown, sourceSelection} from './math.js';
 import {api,esc,qs,list,toast,memberships,statuses,jobLabels,jobStatuses,icons,authSession} from './app.js';
 import {insightMarkup} from './paper-insights.js';
@@ -114,22 +116,25 @@ export function readerAreaRect(start, end) {
 
 // The narrow-screen tools are a modal sheet; desktop keeps a normal sidebar.
 // This controller owns focus and inert state only, never PDF page geometry.
-export function createReaderToolSheet({panel,opener,backdrop,background,activeElement=()=>document.activeElement}) {
-  let narrow=false,opened=false,returnFocus=null;
+export function createReaderToolSheet({panel,opener,backdrop,background,activeElement=()=>document.activeElement,collapsed=false,onChange=()=>{}}) {
+  let narrow=false,opened=false,desktopOpen=!collapsed,returnFocus=null;
   const visible=element=>element&&element.isConnected!==false&&!element.disabled&&!element.closest?.('[hidden],[inert]')&&element.getClientRects().length>0;
   const focusables=()=>[...panel.querySelectorAll('button,a[href],input,select,textarea,summary,[tabindex]')].filter(element=>element.tabIndex>=0&&visible(element));
   function paint(){
-    panel.inert=narrow&&!opened;
+    const shown=narrow?opened:desktopOpen;
+    panel.inert=!shown;
+    panel.classList.toggle('is-sidebar-collapsed',!narrow&&!desktopOpen);
     for(const element of background)if(element)element.inert=narrow&&opened;
     panel.classList.toggle('is-sheet-open',narrow&&opened);
     panel.setAttribute('role',narrow?'dialog':'complementary');
     if(narrow&&opened)panel.setAttribute('aria-modal','true');else panel.removeAttribute('aria-modal');
-    if(narrow&&!opened)panel.setAttribute('aria-hidden','true');else panel.removeAttribute('aria-hidden');
-    opener.setAttribute('aria-expanded',String(narrow&&opened));
+    if(!shown)panel.setAttribute('aria-hidden','true');else panel.removeAttribute('aria-hidden');
+    opener.setAttribute('aria-expanded',String(shown));
     backdrop.hidden=!(narrow&&opened);
+    onChange({narrow,opened:shown});
   }
   function close({restoreFocus=true}={}){
-    const wasOpen=opened;opened=false;paint();
+    const wasOpen=narrow?opened:desktopOpen;if(narrow)opened=false;else desktopOpen=false;paint();
     if(wasOpen&&restoreFocus)(visible(returnFocus)?returnFocus:opener).focus({preventScroll:true});
     returnFocus=null;
   }
@@ -140,14 +145,15 @@ export function createReaderToolSheet({panel,opener,backdrop,background,activeEl
       const focusedInside=panel.contains(activeElement());
       narrow=next;opened=false;returnFocus=null;paint();
       if(narrow&&focusedInside)opener.focus({preventScroll:true});
-      if(!narrow&&focusedInside&&!visible(activeElement()))(focusables()[0]||panel).focus({preventScroll:true});
+      if(!narrow&&focusedInside&&!desktopOpen)opener.focus({preventScroll:true});
+      else if(!narrow&&focusedInside&&!visible(activeElement()))(focusables()[0]||panel).focus({preventScroll:true});
     },
     open(){
-      if(!narrow)return;
-      if(!opened)returnFocus=activeElement();
-      opened=true;paint();(focusables()[0]||panel).focus({preventScroll:true});
+      if(!(narrow?opened:desktopOpen))returnFocus=activeElement();
+      if(narrow)opened=true;else desktopOpen=true;paint();(focusables()[0]||panel).focus({preventScroll:true});
     },
     close,
+    toggle(){if(narrow?opened:desktopOpen)close();else this.open();},
     keydown(event){
       if(!narrow||!opened)return false;
       if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();return true;}
@@ -180,8 +186,9 @@ export async function mountReader({paperId,projectId}) {
     readingMode:'pdf',translationView:false,readingPages:new Map(),readingRequests:new Map(),
     readingFocus:null,readingSequence:0,readingBusy:new Set(),readingBatch:false,readingPollCursor:0
   };
-  let observer, scrollFrame, saveTimer, toolSheet, sidebarDrag=null, sidebarRatio=.27, sidebarFrame, positionQueue = Promise.resolve(true), refreshing = false, refreshSequence = 0;
+  let observer, scrollFrame, saveTimer, toolSheet, relatedPanel, feedbackController, sidebarCollapsed=false, sidebarDrag=null, sidebarRatio=.27, sidebarFrame, positionQueue = Promise.resolve(true), refreshing = false, refreshSequence = 0;
   try{const saved=Number(localStorage.getItem('paperstudio.reader.sidebar-ratio.v1'));if(saved>0&&saved<=.65)sidebarRatio=saved;}catch{}
+  try{sidebarCollapsed=localStorage.getItem('paperstudio.reader.sidebar-collapsed.v1')==='1';}catch{}
   const finishedProjects = new Set(), listeners=[];
   const isAdmin=()=>authSession?.user?.role==='admin'||authSession?.user?.is_admin===true;
   const listen=(target,type,handler,options)=>{target.addEventListener(type,handler,options);listeners.push(()=>target.removeEventListener(type,handler,options));};
@@ -213,7 +220,7 @@ export async function mountReader({paperId,projectId}) {
   function shell() {
     document.title=`${state.paper.title} · PaperStudio`;
     app.innerHTML=`<div class="reader-app continuous-reader reading-pdf translation-off">
-      <header class="reader-header"><a class="reader-back" href="/?view=library&project=${encodeURIComponent(state.projectId)}" title="返回论文库" aria-label="返回论文库"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6M8 12h12"/></svg></a><div class="reader-heading"><h1 title="${esc(state.paper.title)}">${esc(state.paper.title)}</h1></div><span id="reading-status" class="pill">${statuses[membership().status]||'待读'}</span>
+      <header class="reader-header"><a class="reader-back" href="/?view=library&project=${encodeURIComponent(state.projectId)}" title="返回论文库" aria-label="返回论文库"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6M8 12h12"/></svg></a><div class="reader-heading"><h1 title="${esc(state.paper.title)}">${esc(state.paper.title)}</h1></div>${feedbackMarkup({paper_id:paperId})}<span id="reading-status" class="pill">${statuses[membership().status]||'待读'}</span>
         <div class="reader-header-toolbar" role="group" aria-label="阅读器控制">
           <div class="reader-display-switches" role="group" aria-label="阅读显示"><button id="reading-mode-toggle" class="reader-switch" type="button" role="switch" aria-checked="false" data-reader-action="toggle-reading"><span>重排阅读</span><span class="reader-switch-track" aria-hidden="true"><span class="reader-switch-thumb"></span></span></button><button id="translation-view-toggle" class="reader-switch" type="button" role="switch" aria-checked="false" data-reader-action="toggle-translation"><span>对照翻译</span><span class="reader-switch-track" aria-hidden="true"><span class="reader-switch-thumb"></span></span></button></div>
           <div class="reader-page-controls" role="group" aria-label="页面导航"><button class="icon-button" data-reader-action="prev" aria-label="跳到上一页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><label><input id="reader-page" aria-label="定位页码" type="number" min="1" max="${state.paper.page_count}" value="${state.page}"><span>/ ${state.paper.page_count}</span></label><button class="icon-button" data-reader-action="next" aria-label="跳到下一页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button></div>
@@ -222,9 +229,9 @@ export async function mountReader({paperId,projectId}) {
           <div class="reader-narrow-document-controls pdf-only bilingual-only" role="group" aria-label="阅读文档"><button class="button" data-reader-side="original" aria-pressed="true">原文</button><button class="button" data-reader-side="translation" aria-pressed="false">译文</button></div>
         </div><button id="reader-tools-open" class="button reader-tools-open" data-reader-action="open-tools" aria-controls="reader-tools-panel" aria-expanded="false">阅读助手</button></header>
       <div class="reader-columns continuous-columns"><section class="document-pane" aria-label="论文连续阅读"><div id="document-scroll" class="document-scroll" tabindex="0" aria-label="连续 PDF 页面滚动区"><div id="document-pages" class="document-pages"></div></div></section>
-      <div id="reader-resizer" class="reader-resizer" role="separator" aria-orientation="vertical" aria-label="调整阅读区与侧栏宽度，左右方向键微调，双击复位" aria-controls="reader-tools-panel" tabindex="0"></div><div class="reader-tools-backdrop" id="reader-tools-backdrop" hidden aria-hidden="true"></div><aside class="reading-sidebar" id="reader-tools-panel" tabindex="-1" aria-label="论文解读、问答与笔记"><div class="reader-tools-heading"><h2>阅读助手</h2><button class="icon-button" data-reader-action="close-tools" aria-label="关闭阅读工具"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-        <div class="reading-tabs" role="tablist" aria-label="阅读助手"><button id="reader-tab-ai" role="tab" aria-controls="reading-sidebar-body" aria-selected="true" tabindex="0" data-reader-tab="ai" class="active">解读</button><button id="reader-tab-qa" role="tab" aria-controls="reading-sidebar-body" aria-selected="false" tabindex="-1" data-reader-tab="qa">问答</button><button id="reader-tab-notes" role="tab" aria-controls="reading-sidebar-body" aria-selected="false" tabindex="-1" data-reader-tab="notes">笔记 <span id="note-count">${state.notes.length}</span></button></div>
-        <div class="reading-sidebar-body" id="reading-sidebar-body" role="tabpanel" aria-labelledby="reader-tab-ai" tabindex="0"><div id="paragraph-translation-panel" class="paragraph-translation-panel" hidden aria-live="polite"></div><div id="reader-dialogue"><div id="reader-interpretation"><div id="reader-insights"></div><div class="reader-interpretation-actions"><button class="button small" data-research-view="knowledge">结构化解读</button><button class="button small" data-research-view="lineage">研究脉络</button></div></div><div id="reader-research-panel" class="reader-research-panel" hidden></div><div id="reader-archive"></div></div><div id="reader-notes" hidden></div></div><button class="reader-finish" data-reader-action="finish">读完，整理笔记</button>
+      <div id="reader-resizer" class="reader-resizer" role="separator" aria-orientation="vertical" aria-label="调整阅读区与侧栏宽度，左右方向键微调，双击复位" aria-controls="reader-tools-panel" tabindex="0"></div><div class="reader-tools-backdrop" id="reader-tools-backdrop" hidden aria-hidden="true"></div><aside class="reading-sidebar" id="reader-tools-panel" tabindex="-1" aria-label="论文阅读助手"><div class="reader-tools-heading"><h2>阅读助手</h2><button class="icon-button" data-reader-action="close-tools" aria-label="关闭阅读工具"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+        <div class="reading-tabs" role="tablist" aria-label="阅读助手"><button id="reader-tab-ai" role="tab" aria-controls="reading-sidebar-body" aria-selected="true" tabindex="0" data-reader-tab="ai" class="active">解读</button><button id="reader-tab-qa" role="tab" aria-controls="reading-sidebar-body" aria-selected="false" tabindex="-1" data-reader-tab="qa">问答</button><button id="reader-tab-notes" role="tab" aria-controls="reading-sidebar-body" aria-selected="false" tabindex="-1" data-reader-tab="notes">笔记 <span id="note-count">${state.notes.length}</span></button><button id="reader-tab-related" role="tab" aria-controls="reading-sidebar-body" aria-selected="false" tabindex="-1" data-reader-tab="related">相关</button><button id="reader-tab-comments" role="tab" aria-controls="reading-sidebar-body" aria-selected="false" tabindex="-1" data-reader-tab="comments">评论</button></div>
+        <div class="reading-sidebar-body" id="reading-sidebar-body" role="tabpanel" aria-labelledby="reader-tab-ai" tabindex="0"><div id="paragraph-translation-panel" class="paragraph-translation-panel" hidden aria-live="polite"></div><div id="reader-dialogue"><div id="reader-interpretation"><div id="reader-insights"></div><div class="reader-interpretation-actions"><button class="button small" data-research-view="knowledge">结构化解读</button><button class="button small" data-research-view="lineage">研究脉络</button></div></div><div id="reader-research-panel" class="reader-research-panel" hidden></div><div id="reader-archive"></div></div><div id="reader-notes" hidden></div><div id="reader-related" hidden></div><div id="reader-comments" hidden><div class="comments-empty"><span aria-hidden="true">◌</span><h3>暂无评论</h3><p>后续将在这里展示收集到的公开评论与讨论。</p></div></div></div><section id="reader-next" class="related-next" aria-label="继续阅读相关论文"></section><button class="reader-finish" data-reader-action="finish">读完，整理笔记</button>
       </aside></div><div id="selection-context-menu" class="selection-context-menu" role="menu" aria-label="选段操作" hidden><button role="menuitem" data-selection-action="translate">翻译选区</button><button role="menuitem" data-selection-action="qa">针对选区提问</button><button role="menuitem" data-selection-action="summary">总结</button><button role="menuitem" data-selection-action="explain">解释</button><button role="menuitem" data-selection-action="note">笔记</button><button role="menuitem" data-selection-action="figure">图表讲解</button><button role="menuitem" data-selection-action="formula">公式讲解</button><button role="menuitem" data-selection-action="region">选择图表 / 公式区域</button></div>
       <footer class="reader-footer"><span id="reader-hint" role="status" aria-live="polite">拖选句子或段落后右键，选择翻译、问答、总结、解释或笔记。也可按 Shift+F10。</span><span>默认不翻译 · 笔记默认私有</span></footer></div>`;
     qs('#document-pages').innerHTML=state.manifest.map(p=>`<section class="page-pair" data-pair-page="${p.page}" aria-label="第 ${p.page} 页"><article class="page-slot"><div class="pair-page-label">原文 · ${p.page}</div><div id="page-original-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article><article class="page-slot"><div class="pair-page-label">译文 · ${p.page}</div><div id="page-translation-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article><article id="reading-page-${p.page}" class="reflow-page reflow-only" data-reading-page="${p.page}"><div class="reflow-page-heading">第 ${p.page} 页</div><p class="muted">正在重排原文…</p></article></section>`).join('');
@@ -234,9 +241,15 @@ export async function mountReader({paperId,projectId}) {
       for(const entry of entries){const page=Number(entry.target.dataset.pairPage);if(entry.isIntersecting){state.near.add(page);void loadPair(page);}else{state.near.delete(page);unloadPair(page);}}
     },{root:scroll,rootMargin:'1000px 0px',threshold:0});
     for(const element of state.pairs.values())observer.observe(element);
-    toolSheet=createReaderToolSheet({panel:qs('#reader-tools-panel'),opener:qs('#reader-tools-open'),backdrop:qs('#reader-tools-backdrop'),background:[qs('.reader-header'),qs('.document-pane'),qs('.reader-footer')]});
+    feedbackController=mountFeedback(app,{api,toast});
+    toolSheet=createReaderToolSheet({collapsed:sidebarCollapsed,onChange:({narrow,opened})=>{
+      qs('.reader-app')?.classList.toggle('sidebar-collapsed',!narrow&&!opened);
+      if(qs('#reader-resizer'))qs('#reader-resizer').hidden=narrow||!opened;
+      if(!narrow&&!state.disposed){sidebarCollapsed=!opened;try{localStorage.setItem('paperstudio.reader.sidebar-collapsed.v1',opened?'0':'1');}catch{}}
+      if(state.sidebarReady&&!state.disposed){const page=state.page,offset=state.pageOffset;requestAnimationFrame(()=>{if(!state.disposed)void goToPage(page,{offset,remember:false});});}
+    },panel:qs('#reader-tools-panel'),opener:qs('#reader-tools-open'),backdrop:qs('#reader-tools-backdrop'),background:[qs('.reader-header'),qs('.document-pane'),qs('.reader-footer')]});
     state.narrow=window.innerWidth<=900;toolSheet.setNarrow(state.narrow);setupSidebarResize();
-    renderSidebar(); updateToolbar(); updateReadingLayout();
+    renderSidebar(); updateToolbar(); updateReadingLayout();state.sidebarReady=true;void loadRelatedNext();
     if(state.paper.can_edit===false)for(const button of app.querySelectorAll('[data-reader-action=translate],[data-reader-action=retranslate]')){button.disabled=true;button.title='当前论文为只读权限';}
   }
   function updateReadingLayout() {
@@ -463,7 +476,7 @@ export async function mountReader({paperId,projectId}) {
     const previous=state.selectionTranslation;
     if(previous?.anchor.quote===anchor.quote&&previous.anchor.page===anchor.page&&previous.anchor.source_sha===anchor.source_sha&&(previous.busy||['queued','running','succeeded'].includes(previous.job?.status))){state.readingPanelOpen=true;renderReadingPanel();return;}
     const selected={anchor:{...anchor},job:null,busy:true,error:''};state.selectionTranslation=selected;state.readingPanelOpen=true;
-    if(state.narrow)toolSheet?.open();renderReadingPanel();
+    toolSheet?.open();renderReadingPanel();
     try{
       const job=await api(`/papers/${pid}/reading/translate-selection`,{method:'POST',body:{project_id:state.projectId,page:anchor.page,source_sha:anchor.source_sha,selected_text:anchor.quote,selected_rects:anchor.rects}});
       if(job.source_sha!==anchor.source_sha||Number(job.page)!==anchor.page||job.project_id!==state.projectId||!job.selection_scope)throw new Error('翻译任务与选区不一致，请重新选择。');
@@ -896,7 +909,7 @@ export async function mountReader({paperId,projectId}) {
     if(kind!=='qa')state.interpretationKind=kind;
     renderSidebar();
     const panel=qs('#reader-research-panel');if(panel)panel.hidden=false;
-    if(state.narrow&&autoGenerate)toolSheet?.open();
+    if(autoGenerate)toolSheet?.open();
     window.dispatchEvent(new CustomEvent('paperstudio:research',{detail:{kind,paper_id:paperId,project_id:state.projectId,embedded:true,sessionTab:state.tab,autoGenerate,resume,
       selection:selection?{source_sha:selection.source_sha,page:selection.page,block_id:selection.block_id,
         quote:selection.quote||'',rects:selection.rects}:undefined}}));
@@ -908,7 +921,7 @@ export async function mountReader({paperId,projectId}) {
     if(action==='note'){
       if(!canReplaceDraft())return;
       state.selection={...chosen};state.draft='';state.editId=null;state.visibility='private';state.tab='notes';
-      renderSidebar();renderHighlights();if(state.narrow)toolSheet?.open();qs('#note-draft')?.focus();return;
+      renderSidebar();renderHighlights();toolSheet?.open();qs('#note-draft')?.focus();return;
     }
     if(chosen.side!=='original')throw new Error('请在原文对应段落选择后执行翻译或基于原文的分析。');
     if(action==='translate'){
@@ -1011,7 +1024,8 @@ export async function mountReader({paperId,projectId}) {
     const oldScroll=body.scrollTop,focused=document.activeElement;
     const focusId=body.contains(focused)?focused.id:null;
     const caret=focusId==='note-draft'?[focused.selectionStart,focused.selectionEnd]:null;
-    qs('#reader-dialogue').hidden=state.tab==='notes';
+    qs('#reader-dialogue').hidden=!['ai','qa'].includes(state.tab);
+    for(const [id,tab] of [['reader-related','related'],['reader-comments','comments'],['reader-next','ai']]){const panel=qs('#'+id);if(panel)panel.hidden=state.tab!==tab;}
     qs('#reader-notes').hidden=state.tab!=='notes';
     qs('#reader-interpretation').hidden=state.tab!=='ai';
     qs('#reader-archive').hidden=state.tab!=='ai';
@@ -1030,7 +1044,21 @@ export async function mountReader({paperId,projectId}) {
   }
   function activateReaderTab(tab) {
     state.tab=tab;renderSidebar();
-    if(tab!=='notes'&&state.panelTab!==tab)openResearch(tab==='qa'?'qa':state.interpretationKind,null,{autoGenerate:false,resume:true});
+    if(tab==='related'&&!relatedPanel)relatedPanel=mountGraph(qs('#reader-related'),{api,esc,toast,onOpen:item=>openRelatedPaper(item),onAdd:item=>openRelatedPaper(item,true),embedded:true,focus:{paper_id:paperId,project_id:state.projectId}});
+    if(['ai','qa'].includes(tab)&&state.panelTab!==tab)openResearch(tab==='qa'?'qa':state.interpretationKind,null,{autoGenerate:false,resume:true});
+  }
+  async function loadRelatedNext(){
+    const target=qs('#reader-next');if(!target)return;target.innerHTML='<p class="small muted">正在查找相关论文…</p>';
+    try{const data=await api('/relations/graph?'+new URLSearchParams({paper_id:paperId,project_id:state.projectId,limit:3}));if(state.disposed)return;state.relatedData=data;target.innerHTML=compactRelatedMarkup(data,esc);}
+    catch(error){if(!state.disposed)target.innerHTML='<p class="small muted">相关论文暂时无法读取。<button class="text-button" data-related-retry>重试</button></p>';}
+  }
+  async function openRelatedPaper(item,add=false){
+    if(!item)return;if(!add&&!canReplaceDraft())return;
+    if(!add&&item.reader_href&&/^\/read\/[^<>\s]+$/.test(item.reader_href)){readPosition();if(await persistPosition())location.assign(item.reader_href);return;}
+    const safeURL=value=>{try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)?u.href:'';}catch{return '';}};
+    const url=safeURL(item.pdf_url)||safeURL(item.url);
+    if(!add&&url){const r=await api('/resolve',{method:'POST',body:{url,project_id:state.projectId,title:item.title,...(item.catalog_paper_id?{catalog_paper_id:item.catalog_paper_id}:{})}});const id=r.paper_id||r.paper?.id;if(id){readPosition();if(await persistPosition())location.assign('/read/'+encodeURIComponent(id)+'?'+new URLSearchParams({project:r.project_id||state.projectId}));return;}}
+    const {openProjectPicker}=await import('./project-picker.js');openProjectPicker({item,api,esc,safeURL,toast,projectId:state.projectId});
   }
   async function loadInsights() {
     try{state.insights=await api(`/papers/${pid}/insights?project_id=${encodeURIComponent(state.projectId)}`);state.insightsError='';}
@@ -1198,6 +1226,9 @@ export async function mountReader({paperId,projectId}) {
     if(link){event.preventDefault();if(!canReplaceDraft())return;readPosition();if(await persistPosition())location.href=link.href;return;}
     const button=event.target.closest('button');if(!button)return;
     try{
+      if(button.hasAttribute('data-related-all')){activateReaderTab('related');return;}
+      if(button.hasAttribute('data-related-retry')){void loadRelatedNext();return;}
+      if(button.dataset.relatedRead!==undefined){await openRelatedPaper(state.relatedData?.related?.[Number(button.dataset.relatedRead)]);return;}
       if(button.dataset.selectionAction){await selectionAction(button.dataset.selectionAction);return;}
       if(button.dataset.researchView){openResearch(button.dataset.researchView,null,{autoGenerate:false});return;}
       if(button.dataset.researchKind){openResearch(button.dataset.researchKind);return;}
@@ -1211,7 +1242,7 @@ export async function mountReader({paperId,projectId}) {
       if(button.dataset.readingBlock){await selectReadingBlock(Number(button.dataset.readingPage),{blockId:button.dataset.readingBlock});return;}
       if(button.dataset.readingTranslate){
         button.disabled=true;state.readingPanelOpen=true;const page=Number(button.dataset.readingPage);
-        if(state.narrow)toolSheet?.open();
+        toolSheet?.open();
         await selectReadingBlock(page,{blockId:button.dataset.readingTranslate});
         await translateReadingBlock(page,button.dataset.readingTranslate);return;
       }
@@ -1251,8 +1282,8 @@ export async function mountReader({paperId,projectId}) {
       if(button.dataset.noteSummary){button.disabled=true;await createJob('selection-summary',button.dataset.noteSummary);return;}
       if(button.dataset.pageReload){await loadPageSide(button.dataset.pageSide,Number(button.dataset.pageReload),{force:true});return;}
       switch(button.dataset.readerAction){
-        case'open-tools':toolSheet?.open();break;
-        case'close-tools':toolSheet?.close();break;
+        case'open-tools':readPosition();toolSheet?.toggle();break;
+        case'close-tools':readPosition();toolSheet?.close();break;
         case'close-reading-panel':{state.readingPanelOpen=false;const page=state.readingFocus?.page;state.readingSequence++;state.readingFocus=null;renderReadingPanel();renderParagraphHighlights();if(page)updateReadingResults(page);break;}
         case'translate-reading-page':button.disabled=true;await translateReadingPage();break;
         case'prev':await goToPage(state.page-1);break;
@@ -1275,7 +1306,7 @@ export async function mountReader({paperId,projectId}) {
   });
   listen(window,'beforeunload',event=>{if(hasUnsavedDraft()){event.preventDefault();event.returnValue='';}});
   const lifecycle=createReaderLifecycle(()=>{
-    state.disposed=true;refreshSequence++;refreshing=false;hideSelectionMenu();clearArea();stopSidebarResize();toolSheet?.dispose();
+    state.disposed=true;relatedPanel?.dispose();relatedPanel=null;feedbackController?.dispose();feedbackController=null;refreshSequence++;refreshing=false;hideSelectionMenu();clearArea();stopSidebarResize();toolSheet?.dispose();
     window.dispatchEvent(new CustomEvent('paperstudio:reader-paused',{detail:{paper_id:paperId}}));
     observer?.disconnect();clearTimeout(saveTimer);clearTimeout(state.pollTimer);
     if(scrollFrame)cancelAnimationFrame(scrollFrame);scrollFrame=null;
@@ -1287,7 +1318,7 @@ export async function mountReader({paperId,projectId}) {
     for(const controller of state.readingRequests.values())controller.abort();
     state.readingRequests.clear();
   },()=>{
-    state.disposed=false;
+    state.disposed=false;feedbackController=mountFeedback(app,{api,toast});
     state.narrow=window.innerWidth<=900;toolSheet?.setNarrow(state.narrow);applySidebarWidth();updateReadingLayout();
     if(!observer||!state.pairs.size)return;
     state.near.clear();

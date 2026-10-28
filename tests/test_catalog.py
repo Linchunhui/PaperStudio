@@ -267,7 +267,7 @@ def test_cli_resume_skips_actual_seed_95_weeks_without_network(client, monkeypat
     observed = catalog.observed_hf_weeks()
     assert len(observed) == 95
     assert observed[0] == '2025-W01' and observed[-1] == '2026-W43'
-    expected_total = 28919 if (catalog.SEED_DIR / 'manifest.json').exists() else 6465
+    expected_total = 29329 if (catalog.SEED_DIR / 'manifest.json').exists() else 6465
     assert catalog.stats()['total'] == expected_total
     async def unexpected_network(week):
         raise AssertionError('Resume should reuse the bundled weekly observations')

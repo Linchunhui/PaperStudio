@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import {runtime,load,settle} from './ui-harness.mjs';
+let observer,observed=0,disconnected=0;
+const c=runtime({queueMicrotask,MutationObserver:class{constructor(fn){observer=fn;}observe(){observed++;}disconnect(){disconnected++;}}});load(c,'paper-feedback.js');
+const ref=value=>encodeURIComponent(JSON.stringify(value));
+const host=value=>({dataset:{feedbackRef:ref(value)},innerHTML:'',querySelector(){return {focus(){}};}});
+const first=host({catalog_id:'c1'}),second=host({arxiv_id:'2601.00001'});let hosts=[first,second],handler;
+const root={querySelectorAll:()=>hosts,contains:el=>hosts.includes(el),addEventListener(name,fn,capture){assert.ok(capture);handler=fn;},removeEventListener(name,fn,capture){assert.equal(fn,handler);assert.ok(capture);handler=null;}};
+let fail=false,resolvePatch;const requests=[],toasts=[];let state={subject:'arxiv:2601.00001',vote:0,starred:false,likes:0,dislikes:0,stars:0};
+const api=async(path,options)=>{requests.push({path,...options});if(fail)throw Error('offline');if(path.endsWith('/batch'))return {items:options.body.references.map(()=>({...state}))};if(resolvePatch)return await new Promise(resolve=>resolvePatch=resolve);state={...state,...options.body};state.likes=+(state.vote===1);state.dislikes=+(state.vote===-1);state.stars=+state.starred;return {...state};};
+const controller=c.mountFeedback(root,{api,toast:value=>toasts.push(value)});await settle();assert.equal(observed,1);assert.match(first.innerHTML,/aria-pressed="false"/);
+async function click(host,action,retry=false){let prevented=false,stopped=false;const button={dataset:{feedbackAction:action},closest:()=>host,hasAttribute:()=>retry};await handler({target:{closest:()=>button},preventDefault(){prevented=true;},stopImmediatePropagation(){stopped=true;}});assert.ok(prevented&&stopped);}
+await click(first,'like');assert.equal(state.vote,1);assert.equal(first.innerHTML,second.innerHTML,'canonical identity updates both surfaces');assert.match(first.innerHTML,/取消点赞/);
+await click(second,'star');assert.equal(state.vote,1);assert.equal(state.starred,true);await click(first,'dislike');assert.equal(state.vote,-1);assert.equal(state.starred,true);assert.match(second.innerHTML,/取消踩/);assert.doesNotMatch(second.innerHTML,/取消点赞/);
+await click(second,'dislike');assert.equal(state.vote,0);assert.equal(state.starred,true);
+const before=first.innerHTML;fail=true;await click(first,'like');assert.equal(first.innerHTML,before);assert.deepEqual(toasts,['offline']);
+const third=host({catalog_id:'c2'});hosts.push(third);observer();await settle();assert.match(third.innerHTML,/重试反馈/);const count=requests.length;observer();await settle();assert.equal(requests.length,count,'failed hydration does not cause an observer retry loop');
+fail=false;await click(third,'like',true);assert.match(third.innerHTML,/data-feedback-action/);
+resolvePatch=true;const late=click(first,'like');await settle();controller.dispose();const stoppedHTML=first.innerHTML;resolvePatch({...state,vote:1});await late;assert.equal(first.innerHTML,stoppedHTML,'disposed controller ignores a late mutation result');assert.equal(disconnected,1);assert.equal(handler,null);
+assert.equal(c.feedbackMarkup({kind:'article',id:'media'}),'');assert.equal(JSON.stringify(c.feedbackReference({graph_id:'graph'})),JSON.stringify({graph_id:'graph'}));
+console.log('PASS: actual feedback hydration, shared identity, vote exclusivity, independent stars, failures/retries, propagation and late-disposal handling');

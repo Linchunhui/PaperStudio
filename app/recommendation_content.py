@@ -13,8 +13,10 @@ DOCUMENT_VERSION = "paper-title-abstract-v1"
 
 def presentation(con, paper):
     """Public catalog interpretation only; never consult personal research jobs."""
+    from .reading_cards import presentation as reading_card
+    supplied = reading_card(paper)
     if not con.execute("SELECT 1 FROM sqlite_master WHERE name='recommendation_structured'").fetchone():
-        return {"abstract": paper.get("abstract") or "", "structured": None}
+        return {"abstract": paper.get("abstract") or "", "structured": None, **supplied}
     row = con.execute("SELECT * FROM recommendation_structured WHERE catalog_paper_id=?",
                       (paper["id"],)).fetchone()
     structured = None
@@ -24,7 +26,7 @@ def presentation(con, paper):
                       ("research_problem", "tasks", "methods", "contributions", "experiments", "datasets", "limitations", "evidence")}
         structured.update(source_version=row["source_version"], updated_at=row["updated_at"],
                           source_document_hash=row["source_document_hash"], evidence_scope="catalog-material")
-    return {"abstract": paper.get("abstract") or "", "structured": structured}
+    return {"abstract": paper.get("abstract") or "", "structured": structured, **supplied}
 
 
 def paper_presentation(paper_id, project_id):

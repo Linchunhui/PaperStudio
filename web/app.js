@@ -1,3 +1,4 @@
+import {feedbackMarkup,mountFeedback} from './paper-feedback.js';
 import { mountReader } from './reader.js';
 
 export let authSession = {user:null, csrf_token:''};
@@ -136,11 +137,11 @@ async function mountWorkspace() {
   const followed=new Set(Array.isArray(follows)?follows.map(String):[]),hiddenItems=new Set(Array.isArray(hidden)?hidden.map(String):[]);
   const app=qs('#app');
   const recommendationState={};
-  const exploreState={q:params.get('q')||''},indexState={q:params.get('q')||'',mode:params.get('q')?'papers':'entities'};
-  state.librarySection=params.get('view')==='imports'?'imports':(['papers','follows','imports','tasks'].includes(params.get('section'))?params.get('section'):'papers');
+  const exploreState={q:params.get('q')||''},indexState={q:params.get('q')||'',mode:params.get('graph')||params.get('graph_catalog')?'graph':params.get('q')?'papers':'entities',graph:{focus:params.get('graph_catalog')?{catalog_id:params.get('graph_catalog')}:params.get('graph')?{paper:params.get('graph')}:undefined}};
+  state.librarySection=params.get('view')==='imports'?'imports':(['papers','starred','follows','imports','tasks'].includes(params.get('section'))?params.get('section'):'papers');
   if(state.view==='recommendations')state.view='discover';
   if(state.view==='imports')state.view='library';
-  let recommendationPanel=null,recommendationMount=0;
+  let recommendationPanel=null,recommendationMount=0,feedbackController=null;
   function syncRecommendationProfile(profile){
     for(const key of [...followed])if(/^(institution|conference|author|category|topic):/.test(key))followed.delete(key);
     for(const name of profile.institutions)followed.add('institution:'+name);
@@ -299,10 +300,10 @@ async function mountWorkspace() {
     if(summary.status==='fulfilled'){state.catalogStats=summary.value;state.catalogStatsError='';}else state.catalogStatsError=summary.reason.message||'覆盖信息读取失败。';
     state.catalogLoading=false;paintCatalog();
   }
-  function libraryNavigation(){return `<nav class="library-sections" aria-label="论文库内容">${[['papers','论文与项目'],['follows','我的关注'],['imports','导入论文'],['tasks','后台任务']].map(([id,name])=>`<button data-library-section="${id}" ${state.librarySection===id?'aria-current="page"':''}>${name}${id==='tasks'?'<span id="active-import-count" class="nav-count"></span>':''}</button>`).join('')}</nav>`;}
+  function libraryNavigation(){return `<nav class="library-sections" aria-label="论文库内容">${[['papers','论文与项目'],['starred','我的收藏'],['follows','我的关注'],['imports','导入论文'],['tasks','后台任务']].map(([id,name])=>`<button data-library-section="${id}" ${state.librarySection===id?'aria-current="page"':''}>${name}${id==='tasks'?'<span id="active-import-count" class="nav-count"></span>':''}</button>`).join('')}</nav>`;}
   function library(){
     if(state.librarySection==='papers')return libraryPapers();
-    return `<div class="page-heading"><h1 tabindex="-1">我的论文库</h1></div>${libraryNavigation()}${state.librarySection==='follows'?'<div id="follows-panel"></div>':state.librarySection==='imports'?importsArea():`<div class="section-heading"><h2>后台任务</h2><button class="button" data-action="refresh-imports">刷新</button></div><div id="import-results" aria-live="polite">${importList()}</div>`}`;
+    return `<div class="page-heading"><h1 tabindex="-1">我的论文库</h1></div>${libraryNavigation()}${state.librarySection==='starred'?'<div id="starred-panel"></div>':state.librarySection==='follows'?'<div id="follows-panel"></div>':state.librarySection==='imports'?importsArea():`<div class="section-heading"><h2>后台任务</h2><button class="button" data-action="refresh-imports">刷新</button></div><div id="import-results" aria-live="polite">${importList()}</div>`}`;
   }
   function libraryPapers(){
     const project=state.projects.find(p=>p.id===state.projectId);
@@ -312,7 +313,7 @@ async function mountWorkspace() {
     if(state.loading)return '<div class="empty-state"><div class="loading-ring"></div><p>正在读取论文库…</p></div>';
     const scope=projectScope(),rows=state.papers.filter(p=>state.status==='all'||memberships(p).some(m=>scope.has(m.project_id)&&m.status===state.status));
     if(!rows.length)return `<div class="empty-state">${icons.book}<h2>${state.query?'没有找到匹配论文':'还没有入库论文'}</h2><p>粘贴 arXiv 链接或上传 PDF，即可开始阅读。</p><button class="button primary" data-action="open-import">导入论文</button></div>`;
-    return `<div class="result-caption"><span>${rows.length} 篇论文</span><span>按加入时间排列</span></div><div class="paper-grid">${rows.map(p=>{const ms=memberships(p),m=paperMembership(p,state.projectId,scope,state.status),selected=m.project_id||'inbox';return `<article class="paper-card"><div class="paper-card-top"><span class="pdf-label">PDF</span><span class="pill ${m.status==='read'?'green':''}">${statuses[m.status]||'待读'}</span><span class="muted">${esc(p.page_count||0)} 页</span></div><h2><a href="/read/${encodeURIComponent(p.id)}?project=${encodeURIComponent(selected)}">${esc(p.title)}</a></h2><div class="paper-projects">${ms.map(x=>`<span>${esc(projectPath(x.project_id)||'项目')}</span>`).join('')}</div><div class="paper-card-foot"><span>${p.translated_filename?'译文 PDF 已就绪':p.active_translation_run_id?'已启动逐页翻译，可查看已就绪页面':p.has_translation?'译文可阅读':'可按需逐页翻译'}</span><a class="text-link" href="/read/${encodeURIComponent(p.id)}?project=${encodeURIComponent(selected)}">连续阅读 ${icons.arrow}</a></div><div class="paper-process"><button class="button small" data-process-paper="${esc(p.id)}" data-process-project="${esc(selected)}">安排解析 / AI 处理</button></div><details class="associate-paper"><summary>关联到其他项目</summary><form data-associate="${esc(p.id)}"><select name="project_id" aria-label="关联目标项目">${projectOptions(selected)}</select><button class="button small" type="submit">关联</button></form></details></article>`;}).join('')}</div>`;
+    return `<div class="result-caption"><span>${rows.length} 篇论文</span><span>按加入时间排列</span></div><div class="paper-grid">${rows.map(p=>{const ms=memberships(p),m=paperMembership(p,state.projectId,scope,state.status),selected=m.project_id||'inbox';return `<article class="paper-card"><div class="paper-card-top"><span class="pdf-label">PDF</span><span class="pill ${m.status==='read'?'green':''}">${statuses[m.status]||'待读'}</span><span class="muted">${esc(p.page_count||0)} 页</span></div><h2><a href="/read/${encodeURIComponent(p.id)}?project=${encodeURIComponent(selected)}">${esc(p.title)}</a></h2><div class="paper-projects">${ms.map(x=>`<span>${esc(projectPath(x.project_id)||'项目')}</span>`).join('')}</div><div class="paper-card-foot"><span>${p.translated_filename?'译文 PDF 已就绪':p.active_translation_run_id?'已启动逐页翻译，可查看已就绪页面':p.has_translation?'译文可阅读':'可按需逐页翻译'}</span><a class="text-link" href="/read/${encodeURIComponent(p.id)}?project=${encodeURIComponent(selected)}">连续阅读 ${icons.arrow}</a></div><div class="paper-social-row">${feedbackMarkup({paper_id:p.id})}</div><div class="paper-process"><button class="button small" data-process-paper="${esc(p.id)}" data-process-project="${esc(selected)}">安排解析 / AI 处理</button></div><details class="associate-paper"><summary>关联到其他项目</summary><form data-associate="${esc(p.id)}"><select name="project_id" aria-label="关联目标项目">${projectOptions(selected)}</select><button class="button small" type="submit">关联</button></form></details></article>`;}).join('')}</div>`;
   }
   function processingOptions(){
     const p=state.importer.processing;
@@ -356,16 +357,18 @@ async function mountWorkspace() {
   }
   function restoreFormFocus(previous){if(!previous)return;const field=qs(previous.selector);field?.focus?.({preventScroll:true});if(typeof previous.start==='number'&&field?.setSelectionRange)try{field.setSelectionRange(previous.start,previous.end);}catch{}}
   function render({focusHeading=false}={}){
-    recommendationPanel?.dispose();recommendationPanel=null;const recMount=++recommendationMount;
+    recommendationPanel?.dispose();recommendationPanel=null;feedbackController?.dispose();feedbackController=null;const recMount=++recommendationMount;
     const focused=document.activeElement;
     const previous=!focusHeading&&focused?.form?.id&&focused?.name?{selector:`#${focused.form.id} [name="${focused.name}"]`,start:focused.selectionStart,end:focused.selectionEnd}:null;
     const titles={recommendations:'为你推荐',discover:'搜索与推荐',catalog:'论文索引',library:'我的论文库',imports:'导入与任务',groups:'研究小组',skills:'管理员设置'};
     const contents={recommendations:()=>'<div id="recommendations-panel"><p role="status">正在载入推荐…</p></div>',discover,catalog:catalogArea,library,imports:importsArea,groups:()=>'<div class="page-heading"><div><h1 tabindex="-1">研究小组</h1><p>共享阅读清单与研究成果，保留每个人的独立思考。</p></div></div><div id="groups-panel"></div>',skills:skillsArea};
     app.innerHTML=`<a class="skip-link" href="#main-content">跳到主要内容</a><div class="workspace-layout workspace-v2 ${state.navOpen?'nav-open':''}">${sidebar()}<button class="workspace-nav-backdrop" data-action="close-navigation" aria-label="关闭导航" tabindex="-1" hidden></button><main id="main-content" class="workspace-main" tabindex="-1"><header class="workspace-topbar"><button id="workspace-nav-toggle" class="workspace-nav-toggle button" data-action="toggle-navigation" aria-controls="workspace-navigation" aria-expanded="false">${icons.menu}<span>导航</span></button><span>研究空间 <span class="crumb-separator">/</span> ${titles[state.view]}</span><span class="pill">PaperStudio</span></header><div class="workspace-content">${contents[state.view]()}</div></main></div>`;
-    const panelSpec=state.view==='discover'?['explore-panel','./explore-ui.js','mountExplore',exploreState]:state.view==='catalog'?['index-panel','./index-browser.js','mountIndex',indexState]:state.view==='library'&&state.librarySection==='follows'?['follows-panel','./follows-ui.js','mountFollows',{}]:null;
+    feedbackController=mountFeedback(app,{api,toast});
+    const panelSpec=state.view==='discover'?['explore-panel','./explore-ui.js','mountExplore',exploreState]:state.view==='catalog'?['index-panel','./index-browser.js','mountIndex',indexState]:state.view==='library'&&state.librarySection==='follows'?['follows-panel','./follows-ui.js','mountFollows',{}]:state.view==='library'&&state.librarySection==='starred'?['starred-panel','./starred-ui.js','mountStarred',{}]:null;
     if(panelSpec)import(panelSpec[1]).then(module=>{
       const root=qs('#'+panelSpec[0]);if(recMount!==recommendationMount||!root)return;
       recommendationPanel=module[panelSpec[2]](root,{api,esc,safeURL,toast,isAdmin,state:panelSpec[3],legacy:legacyRecommendationProfile(),onProfile:syncRecommendationProfile,
+        onGraph:async item=>{indexState.mode='graph';indexState.graph={focus:item.catalog_paper_id?{catalog_id:item.catalog_paper_id}:item.graph_id?{paper:item.graph_id}:item.arxiv_id?{paper:'arxiv_'+item.arxiv_id.replace('.','_')}:item.id?{catalog_id:item.id}:undefined};await setView('catalog');},
         onOpen:item=>item.kind==='article'?openIndexedPaper({...item,url:item.paper_urls?.[0]||item.url},{read:true,quickAdd:true}):openIndexedPaper(item,{read:true,quickAdd:true}),
         onAdd:async item=>{const {openProjectPicker}=await import('./project-picker.js');openProjectPicker({item:item.kind==='article'?{...item,url:item.paper_urls?.[0],title:''}:item,api,esc,safeURL,toast,projectId:state.projectId||authSession.user.inbox_id});},
         onBrowse:async(kind,value)=>{indexState.mode=kind?'papers':'entities';indexState.filters=kind?{[kind]:value}:{};indexState.q='';await setView('catalog');}});
@@ -399,6 +402,7 @@ async function mountWorkspace() {
   async function browseCatalogCategory(type,name){for(const field of ['catalogQuery','catalogYear','catalogInstitution','catalogConference','catalogConferenceYear','catalogPresentation','catalogDirection','catalogTopic'])state[field]='';state.catalogSource='all';state.catalogVerification='all';if(type==='institution')state.catalogInstitution=name;else if(type==='conference')state.catalogConference=name;state.catalogPage=1;await setView('catalog');}
   async function openIndexedPaper(item,{read=false,quickAdd=false}={}){
     if(!item)return;
+    if(read&&item.reader_href&&/^\/read\/[^<>\s]+$/.test(item.reader_href)){location.assign(item.reader_href);return;}
     const url=safeURL(item.resolve?.url)||safeURL(item.pdf_url)||safeURL(item.url);
     const quickPick=async()=>{const {openProjectPicker}=await import('./project-picker.js');return openProjectPicker({item,api,esc,safeURL,toast,projectId:state.projectId||authSession.user.inbox_id});};
     if(quickAdd&&(!read||item.resolve?.action==='search'||!url))return quickPick();
@@ -533,8 +537,8 @@ async function mountWorkspace() {
     }catch(e){toast(e.message);if(['catalog-import-form','catalog-hf-form'].includes(form.id)){state.catalogImportError=e.message;state.catalogFeedback='';const feedback=qs('#catalog-import-feedback');if(feedback){feedback.textContent=e.message;feedback.classList.add('has-error');}}if(form.id==='import-form'){state.importFailure=e.message;state.importMessage='';const feedback=qs('#import-feedback');if(feedback){feedback.textContent=e.message;feedback.classList.add('has-error');}}}
     finally{if(['catalog-import-form','catalog-hf-form'].includes(form.id)){state.catalogImporting=false;if(submit?.isConnected)submit.textContent=form.id==='catalog-hf-form'?'获取这周 Top 50':'导入索引';}if(form.id==='import-form'){state.importSubmitting=false;if(submit?.isConnected)submit.textContent=state.importer.kind==='existing'?'创建处理计划':'导入并后台处理';}if(submit?.isConnected)submit.disabled=false;}
   });
-  window.addEventListener('pagehide',()=>{pageActive=false;clearTimeout(pollTimer);catalogController?.abort();++catalogSequence;recommendationPanel?.dispose();recommendationPanel=null;++recommendationMount;});
-  window.addEventListener('pageshow',event=>{pageActive=true;if(event.persisted){loadImports();if(['catalog','discover'].includes(state.view)||(state.view==='library'&&state.librarySection==='follows'))render();}});
+  window.addEventListener('pagehide',()=>{pageActive=false;clearTimeout(pollTimer);catalogController?.abort();++catalogSequence;recommendationPanel?.dispose();recommendationPanel=null;feedbackController?.dispose();feedbackController=null;++recommendationMount;});
+  window.addEventListener('pageshow',event=>{pageActive=true;if(event.persisted){loadImports();if(['catalog','discover'].includes(state.view)||(state.view==='library'&&['follows','starred'].includes(state.librarySection)))render();}});
   try{
     const [projects,caps,skills,sources,config]=await Promise.allSettled([api('/projects'),isAdmin?api('/capabilities'):Promise.resolve({}),isAdmin?api('/skills'):Promise.resolve([]),Promise.resolve({sources:[]}),isAdmin?api('/discovery/config'):Promise.resolve({})]);
     if(projects.status==='rejected')throw projects.reason;state.projects=list(projects.value);if(state.projectId&&!state.projects.some(p=>p.id===state.projectId))state.projectId='';

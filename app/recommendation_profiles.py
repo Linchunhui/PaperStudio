@@ -110,6 +110,11 @@ def merge_catalog_identity(con, old_id, new_id):
         con.execute("INSERT OR IGNORE INTO recommendation_dismissals SELECT user_id,?,created_at FROM recommendation_dismissals WHERE catalog_paper_id=?", (new_id, old_id))
     if "paper_catalog_links" in tables:
         con.execute("UPDATE paper_catalog_links SET catalog_paper_id=? WHERE catalog_paper_id=?", (new_id, old_id))
+    if "reading_card_catalog" in tables:
+        con.execute("UPDATE reading_card_catalog SET catalog_paper_id=? WHERE catalog_paper_id=?", (new_id, old_id))
+    if "paper_feedback" in tables:
+        from .paper_feedback import merge_identity
+        merge_identity(con, 'catalog:'+old_id, 'catalog:'+new_id, new_id)
     if "recommendation_snapshots" in tables:
         con.execute("DELETE FROM recommendation_snapshots")
 
@@ -121,6 +126,11 @@ def link_paper(paper_id, catalog_paper_id):
             return False  # Catalog may have been merged while a download ran.
         con.execute("INSERT INTO paper_catalog_links VALUES(?,?,?,?) ON CONFLICT(paper_id) DO UPDATE SET catalog_paper_id=excluded.catalog_paper_id,match_method=excluded.match_method",
                     (paper_id, catalog_paper_id, "verified-source", core.now()))
+        if con.execute("SELECT 1 FROM sqlite_master WHERE name='paper_feedback'").fetchone():
+            from .paper_feedback import catalog_subject, merge_identity
+            item = json.loads(con.execute('SELECT data FROM catalog_papers WHERE id=?',(catalog_paper_id,)).fetchone()[0])
+            merge_identity(con, 'paper:'+paper_id, catalog_subject(item), catalog_paper_id)
+            con.execute('DELETE FROM recommendation_snapshots')
     return True
 
 

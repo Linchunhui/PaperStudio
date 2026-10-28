@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const source=fs.readFileSync(new URL('../web/reader.js',import.meta.url),'utf8');
 const between=(a,b)=>{const i=source.indexOf(a),j=source.indexOf(b,i+a.length);assert.ok(i>=0&&j>i);return source.slice(i,j);};
-const context=vm.createContext({Promise,Number,Set,Map});
+const context=vm.createContext({toolSheet:{open(){}},Promise,Number,Set,Map});
 vm.runInContext('(function(){'+fs.readFileSync(new URL('../web/math.js',import.meta.url),'utf8').replace(/^export /gm,'')+';Object.assign(globalThis,{mathText,mathMarkdown,sourceSelection});})()',context);
 vm.runInContext(between('// A page','export async function mountReader').replaceAll('export ',''),context);
 const exact={x:.2,y:.3,width:.3,height:.04};
@@ -115,8 +115,8 @@ context.translationPage=()=>({status:'ready',source_sha:'replacement'});
 context.renderExistingPageTranslation(2);assert.equal(translationHidden,true);assert.equal(pageClass,false);
 console.log('PASS: existing PDF translation reflow is page-aligned and rejects replaced versions');
 
-// The reader has exactly three tabs and no persistent region-tool buttons.
-assert.equal((shell.match(/role="tab"/g)||[]).length,3);
+// The reader has five tabs and no persistent region-tool buttons.
+assert.equal((shell.match(/role="tab"/g)||[]).length,5);
 assert.match(shell,/data-reader-tab="qa"/);
 assert.doesNotMatch(shell,/data-region-kind=|解读与总结/);
 const regionCalls=[];
@@ -130,7 +130,7 @@ context.areaPointerUp({pointerId:8,preventDefault(){},stopPropagation(){}});
 assert.equal(context.state.pendingSelection.region,true);
 assert.equal(context.state.pendingSelection.page,2);
 assert.equal(regionCalls.length,0,'Releasing a region only selects; right-click action is required to explain');
-console.log('PASS: three reader tabs and explicit post-selection region actions');
+console.log('PASS: five reader tabs and explicit post-selection region actions');
 
 let openedSheets=0;const researchEvents=[];
 Object.assign(context,{

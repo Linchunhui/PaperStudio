@@ -109,6 +109,9 @@ def init_catalog(seed=True):
             except (HTTPException, OSError):
                 # One bad seed must not make existing reading unavailable.
                 continue
+        if (SEED_DIR.parent/'reading-cards'/'manifest.json').is_file():
+            from .reading_cards import init_catalog_cards
+            init_catalog_cards()
 
 
 def _reindex_directions():
@@ -531,6 +534,9 @@ def _save_paper(con, identifier, data, now):
     facets += [(identifier, kind, value) for kind, value in taxonomy.facets(data["classification"])]
     con.executemany("INSERT OR IGNORE INTO catalog_facets VALUES(?,?,?)", facets)
     con.executemany("INSERT OR IGNORE INTO catalog_conferences VALUES(?,?,?,?,?,?)", [(identifier, c["conference"], c["year"], c["presentation"], c["verification_status"], c["selectivity"]) for c in data.get("conferences", [])])
+    if con.execute("SELECT 1 FROM sqlite_master WHERE name='paper_feedback'").fetchone():
+        from .paper_feedback import catalog_subject, merge_identity
+        merge_identity(con, 'catalog:'+identifier, catalog_subject(data), identifier)
 
 
 def _record_failure(name, message, fingerprint=None):

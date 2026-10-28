@@ -12,7 +12,7 @@ from .recommendation_content import CandidateProvider, RetrievalContext, present
 from .recommendation_profiles import get_profile
 
 logger = logging.getLogger(__name__)
-STRATEGY_VERSION = "catalog-hybrid-v2-authors"
+STRATEGY_VERSION = "catalog-hybrid-v3-paper-relations"
 MAX_CANDIDATES = 480
 SNAPSHOT_MINUTES = 15
 
@@ -114,12 +114,30 @@ def _retrieve(con, profile, category_id, topic_id, providers):
             # Provider errors must not take reading or the rule fallback down.
             degraded.append(provider.name)
             logger.warning("Recommendation candidate provider unavailable: %s", provider.name)
-    has_preferences = any(profile[key] for key in ("category_ids", "topic_ids", "keywords", "institutions", "conferences", "authors"))
+    relations, excluded = {}, set()
+    if con.execute("SELECT 1 FROM sqlite_master WHERE name='paper_feedback'").fetchone():
+        excluded = {r[0] for r in con.execute('SELECT subject FROM paper_feedback WHERE user_id=? AND vote=-1', (auth.current_user_id(),))}
+    try:
+        from .recommendation_graph import candidates as graph_candidates
+        relations, graph_excluded = graph_candidates(con)
+        excluded.update(graph_excluded)
+        if relations:
+            add('p.id IN ('+','.join('?' for _ in relations)+')', list(relations), 'paper-relations', 120)
+            for key, signal in relations.items():
+                if key in candidates:
+                    candidates[key]['relation_signal'] = signal
+    except Exception:
+        degraded.append('paper-relations')
+        logger.warning('Paper relationship recommendations unavailable')
+    has_preferences = bool(relations) or any(profile[key] for key in ("category_ids", "topic_ids", "keywords", "institutions", "conferences", "authors"))
     fallback = "no_matches" if has_preferences and not candidates else "no_preferences" if not has_preferences else None
     if fallback:
         # Preserve explicit page filters even when the preference pool is empty.
         add(limit=240)
         add(channel="catalog", limit=60, order="popular")
+    if excluded:
+        from .paper_feedback import catalog_subject
+        candidates = {key:item for key,item in candidates.items() if catalog_subject(item) not in excluded}
     if candidates and con.execute("SELECT 1 FROM sqlite_master WHERE name='recommendation_structured'").fetchone():
         keys = list(candidates)
         for start in range(0, len(keys), 400):
@@ -142,12 +160,15 @@ def _rank(item, profile, channels, semantic, at):
     institutions = [value for value in item.get("institutions", []) if value.casefold() in {v.casefold() for v in profile["institutions"]}]
     conferences = sorted({c["conference"] for c in item.get("conferences", []) if c["conference"].casefold() in {v.casefold() for v in profile["conferences"]}})
     authors = [v for v in item.get("authors", []) if v.casefold() in {a.casefold() for a in profile.get("authors", [])}]
-    relevance = max(.9 if authors else 0, 1.0 if topic_labels else 0, .72 if category_labels else 0, .9 if keywords else 0,
+    relation = item.get('relation_signal') or {}
+    relevance = max(relation.get('relevance',0), .9 if authors else 0, 1.0 if topic_labels else 0, .72 if category_labels else 0, .9 if keywords else 0,
                     .85 if institutions else 0, .65 if conferences else 0, .8 if structured_keywords else 0, semantic or 0)
     freshness, age_days = _freshness(item, at, profile["freshness_days"])
     votes = item.get("hf_upvotes")
     popularity = min(1.0, math.log1p(max(0, votes)) / math.log1p(1000)) if isinstance(votes, (float, int)) and math.isfinite(votes) else 0
     reasons = []
+    if relation:
+        reasons.append(relation['reason'])
     if topic_labels:
         reasons.append("匹配关注方向：" + "、".join(dict.fromkeys(v["topic_name"] for v in topic_labels)))
     elif category_labels:
@@ -171,10 +192,11 @@ def _rank(item, profile, channels, semantic, at):
     matched_bucket = topic_labels or category_labels
     bucket = (matched_bucket[0].get("topic_id") or matched_bucket[0]["category_id"]) if matched_bucket else classification["primary"].get("category_id", "unclassified")
     # Semantic evidence also discriminates papers sharing the same topic tag.
-    return {"id": item["id"], "score": round(.55 * relevance + .10 * (semantic or 0) + .28 * freshness + .07 * popularity, 6),
+    return {"id": item["id"], "score": round(.55 * relevance + .10 * max(semantic or 0,relation.get('relevance',0)) + .28 * freshness + .07 * popularity, 6),
             "reasons": reasons, "bucket": bucket, "channels": sorted(channels),
             "score_signals": {"relevance": relevance, "freshness": round(freshness, 4), "age_days": round(age_days, 1) if age_days is not None else None,
-                              "popularity": round(popularity, 4), "semantic": semantic}}
+                              "popularity": round(popularity, 4), "semantic": semantic,
+                              "paper_similarity":relation.get('score'), "related_seed":relation.get('seed_id')}}
 
 
 def _diversify(rows):
@@ -216,7 +238,8 @@ def recommend(*, limit=24, cursor="", category_id="", topic_id="", providers: tu
             candidates, channels, semantic, fallback, degraded = _retrieve(con, profile, category_id, topic_id, providers)
             ranked = [_rank(item, profile, channels[identifier], semantic.get(identifier), at) for identifier, item in candidates.items()]
             snapshot = {"rows": _diversify(ranked), "fallback": fallback, "degraded_sources": degraded,
-                        "filters": {"category_id": category_id, "topic_id": topic_id}, "generated_at": at.isoformat(), "semantic_used": bool(semantic)}
+                        "filters": {"category_id": category_id, "topic_id": topic_id}, "generated_at": at.isoformat(), "semantic_used": bool(semantic),
+                        "relations_used": any(item.get('relation_signal') for item in candidates.values())}
             snapshot_id = core.uid()
             con.execute("INSERT INTO recommendation_snapshots VALUES(?,?,?,?,?,?)", (snapshot_id, user_id, profile["version"], json.dumps(snapshot, ensure_ascii=False), at.isoformat(), (at + timedelta(minutes=SNAPSHOT_MINUTES)).isoformat()))
             con.execute("DELETE FROM recommendation_snapshots WHERE user_id=? AND id NOT IN (SELECT id FROM recommendation_snapshots WHERE user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 5)", (user_id, user_id))
@@ -239,4 +262,5 @@ def recommend(*, limit=24, cursor="", category_id="", topic_id="", providers: tu
     return {"items": items, "next_cursor": f"{snapshot_id}:{offset}" if offset < len(rows) else None,
             "request_id": snapshot_id, "strategy_version": STRATEGY_VERSION, "profile_version": profile["version"],
             "candidate_count": len(rows), "generated_at": snapshot["generated_at"], "fallback": snapshot["fallback"],
-            "degraded_sources": snapshot["degraded_sources"], "mode": "hybrid" if snapshot["semantic_used"] else "rules", "embedding_enabled": snapshot["semantic_used"]}
+            "degraded_sources": snapshot["degraded_sources"], "mode": "hybrid" if snapshot["semantic_used"] or snapshot.get('relations_used') else "rules", "embedding_enabled": snapshot["semantic_used"],
+            "relations_enabled": snapshot.get('relations_used',False)}

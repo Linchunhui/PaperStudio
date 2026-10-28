@@ -42,6 +42,16 @@ sheet.open();sheet.setNarrow(false);assert.equal(panel.inert,false);assert.equal
 const desktopEscape=key('Escape');assert.equal(sheet.keydown(desktopEscape),false,'desktop sidebar does not trap focus');
 draft.focus();sheet.setNarrow(true);assert.equal(active,opener,'shrinking the viewport never strands focus in the closed tools');
 sheet.open();sheet.dispose();assert.equal(documentPane.inert,false);assert.equal(panel.inert,false);assert.equal(backdrop.hidden,true);
+// Desktop collapse, responsive transitions and reopening keep the draft intact.
+const changes=[];
+const desktop=context.createReaderToolSheet({panel,opener,backdrop,background:[header,documentPane,footer],activeElement:()=>active,collapsed:true,onChange:value=>changes.push(value)});
+assert.equal(panel.inert,true);assert.equal(panel.classes.has('is-sidebar-collapsed'),true);
+opener.focus();desktop.toggle();assert.equal(panel.inert,false);assert.equal(active,close);
+draft.focus();desktop.close();assert.equal(active,opener);assert.equal(draft.value,'unsaved note');
+desktop.setNarrow(true);desktop.open();draft.focus();desktop.setNarrow(false);
+assert.equal(active,opener,'leaving mobile tools restores focus outside a collapsed desktop sidebar');
+assert.equal(panel.inert,true);desktop.open();assert.equal(panel.inert,false);
+assert.ok(changes.some(c=>!c.narrow&&!c.opened));desktop.dispose();
 console.log('PASS: tools sheet inert background, open/close focus, Tab wrap, Escape, removed trigger fallback, breakpoint cleanup and retained drafts');
 
 // A narrow document switch performs display reads only and preserves exact anchors.

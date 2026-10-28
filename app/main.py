@@ -21,6 +21,9 @@ from .research_routes import router as research_router
 from .recommendation_routes import router as recommendation_router
 from .recommendation_profiles import init_recommendations
 from .recommendation_vectors import init_vectors
+from .paper_feedback import init_feedback
+from .feedback_routes import router as feedback_router
+from .relations_routes import router as relations_router
 
 
 @asynccontextmanager
@@ -32,6 +35,7 @@ async def lifespan(app):
     catalog.init_catalog()
     init_recommendations()
     init_vectors()
+    init_feedback()
     research.init_research()
     if auth.setup_required() and os.environ.get('PAPERSTUDIO_SEED_DEMO', '1') == '1':
         from .sample import seed_sample
@@ -97,6 +101,8 @@ app.include_router(catalog_router)
 app.include_router(reading_router)
 app.include_router(research_router)
 app.include_router(recommendation_router)
+app.include_router(feedback_router)
+app.include_router(relations_router)
 
 
 @app.get('/api/sources')

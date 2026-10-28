@@ -1,0 +1,154 @@
+{
+  "说明": "按一级方向分组的最终综合相似度；各组论文顺序见 papers，similarity_upper 第 i 行依次对应第 i+1 到最后一篇论文。对称关系只保留一份，对角线不保存。",
+  "score_decimals": 2,
+  "unknown_score": null,
+  "unknown_meaning": "null 表示缺少可用关系证据；不等于 0。跨一级方向关系未导出。",
+  "node_count": 12601,
+  "primary_direction_count": 13,
+  "includes_unclassified_group": true,
+  "weights": {
+    "topic": 0.15,
+    "problem": 0.15,
+    "method": 0.15,
+    "overview": 0.3,
+    "key_results": 0.1,
+    "citation": 0.15
+  },
+  "score_meaning": "综合分数=五维非负余弦的加权和+文献关系分量。直接引用任一方向成立时文献分量为1，否则为共同参考IDF加权余弦。缺失维度不重新放大权重。",
+  "score_note": "仅保存固定权重的最终分数；五维分量不在本文件中。",
+  "pairs_including_unknown": 10360703,
+  "pairs_with_known_score": 5980731,
+  "format": "upper-cents-gzip-base64-v1",
+  "source_sha256": "7f4cef03bce0fc5819d970b49b728733b4e27618c415eba81e31192b65ebe11d",
+  "citation_status": "not_provided",
+  "components_status": "not_provided",
+  "groups": [
+    {
+      "id": "nlp",
+      "name": "LLM / NLP",
+      "file": "nlp.json",
+      "node_count": 3342,
+      "known_pair_count": 3611577,
+      "sha256": "b4d0bfb04739cab1eda0722fce01054299f5867cd67ed56fa984e383aeb51cc5",
+      "bytes": 4053524
+    },
+    {
+      "id": "multimodal",
+      "name": "多模态",
+      "file": "multimodal.json",
+      "node_count": 1010,
+      "known_pair_count": 281053,
+      "sha256": "e423577eade9ebc38151b12a96e0039c5763282f1f8ec905112d6950ea3ad87a",
+      "bytes": 469412
+    },
+    {
+      "id": "vision",
+      "name": "计算机视觉",
+      "file": "vision.json",
+      "node_count": 276,
+      "known_pair_count": 10245,
+      "sha256": "e2075541105c3100a65d04cee16862cd8ff52a958209a61faf97bbb8efb90592",
+      "bytes": 62086
+    },
+    {
+      "id": "document",
+      "name": "OCR / 文档智能",
+      "file": "document.json",
+      "node_count": 89,
+      "known_pair_count": 3110,
+      "sha256": "e2bbabb1b9d7d94ea9a7e182cfe18718e20a40bc4287898edef8d36a4372af4e",
+      "bytes": 18938
+    },
+    {
+      "id": "generation",
+      "name": "生成模型",
+      "file": "generation.json",
+      "node_count": 1711,
+      "known_pair_count": 713234,
+      "sha256": "a4fdc4af82130146b505e3723ed2508135c30aa1a456574f785e7b88923b70cf",
+      "bytes": 1046880
+    },
+    {
+      "id": "geometry",
+      "name": "三维与图形学",
+      "file": "geometry.json",
+      "node_count": 526,
+      "known_pair_count": 31121,
+      "sha256": "d322a68d927d37799a4c0e90a1b2f3617b4590ef3fcb45f71210cca773bd9533",
+      "bytes": 129727
+    },
+    {
+      "id": "rl",
+      "name": "强化学习",
+      "file": "rl.json",
+      "node_count": 907,
+      "known_pair_count": 238303,
+      "sha256": "1fc1271f057f70f36be0ca301fb9e684f75481c355fba47f3fa3cda31efa7ebc",
+      "bytes": 404804
+    },
+    {
+      "id": "robotics",
+      "name": "机器人 / VLA",
+      "file": "robotics.json",
+      "node_count": 591,
+      "known_pair_count": 58927,
+      "sha256": "1de96ac172aade57bba900a726b535c97c01e08a017e59faecf2dafdf8e24e15",
+      "bytes": 170952
+    },
+    {
+      "id": "retrieval",
+      "name": "检索 / RAG / 推荐",
+      "file": "retrieval.json",
+      "node_count": 189,
+      "known_pair_count": 8452,
+      "sha256": "987d8f153665201061d7d0b659462d6c7b62aa776f6c67238599061714a76348",
+      "bytes": 44164
+    },
+    {
+      "id": "theory",
+      "name": "学习理论与优化",
+      "file": "theory.json",
+      "node_count": 444,
+      "known_pair_count": 18052,
+      "sha256": "13847f16d72b28cdf43134e48537a62cc2faa445f9cf8b7ba2c4825d37f12261",
+      "bytes": 104172
+    },
+    {
+      "id": "efficiency",
+      "name": "训练与推理效率",
+      "file": "efficiency.json",
+      "node_count": 1257,
+      "known_pair_count": 363309,
+      "sha256": "17b9e5e4aa625f996e4dcf530b97c6179e27616fd14237b1fe10ea66a8a63aee",
+      "bytes": 605316
+    },
+    {
+      "id": "trust",
+      "name": "安全与可信",
+      "file": "trust.json",
+      "node_count": 521,
+      "known_pair_count": 45099,
+      "sha256": "0253a0479c34bfd518fc8ee4ca2b382ae27a44794e7e0695ab43633ed42fe1d4",
+      "bytes": 144958
+    },
+    {
+      "id": "science",
+      "name": "AI for Science",
+      "file": "science.json",
+      "node_count": 374,
+      "known_pair_count": 22940,
+      "sha256": "857f8a44a99485265a537d116e11b7b44b3c63e7cd48e008b11b8a9d08998261",
+      "bytes": 96348
+    },
+    {
+      "id": "unclassified",
+      "name": "交叉 / 待分类",
+      "file": "unclassified.json",
+      "node_count": 1364,
+      "known_pair_count": 575309,
+      "sha256": "775336b5b633e88b742515b17327ede047a1b24780d4805bdff01b8316c7dff4",
+      "bytes": 809102
+    }
+  ],
+  "embedding_node_count": 8879
+}

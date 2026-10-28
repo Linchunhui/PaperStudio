@@ -408,9 +408,10 @@ def _rank(items, interests):
 def _catalog_presentation(items):
     from . import catalog, core
     from .recommendation_content import presentation
+    from .reading_cards import presentation as reading_presentation
     with core.db() as con:
         if not con.execute("SELECT 1 FROM sqlite_master WHERE name='catalog_aliases'").fetchone():
-            return items
+            return [{**item, **reading_presentation(item)} for item in items]
         enriched = []
         for item in items:
             try:
@@ -424,6 +425,8 @@ def _catalog_presentation(items):
                 item = {**item, "catalog_paper_id": paper["id"], **content,
                         "abstract": content["abstract"] or item.get("snippet", ""),
                         **{key: paper.get(key) for key in ("institutions", "conferences", "github_stars", "github_url", "hf_upvotes")}}
+            else:
+                item = {**item, **reading_presentation(item)}
             enriched.append(item)
     return enriched
 
@@ -450,7 +453,7 @@ async def feed(sources: list[str], interests: list[str], limit: int, refresh: bo
         return await _load(source, fetcher, refresh=refresh)
     results = await asyncio.gather(*(one(source) for source in dict.fromkeys(sources)))
     items = _deduplicate([item for rows, _ in results for item in rows])
-    items, facets = direction_view(items)
+    items, facets = direction_view(_catalog_presentation(items))
     hierarchy = taxonomy.item_snapshot(items)
     items = [item for item in items if taxonomy.matches(item, direction, topic)]
     return {"items": _rank(items, interests)[:limit], "directions": facets, "direction_taxonomy": hierarchy, "direction_filter_scope": "当前来源返回集合", "statuses": [status for _, status in results], "fetched_at": core.now()}

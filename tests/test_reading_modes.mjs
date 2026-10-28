@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const source=fs.readFileSync(new URL('../web/reader.js',import.meta.url),'utf8');
 const between=(a,b)=>{const start=source.indexOf(a),end=source.indexOf(b,start+a.length);assert.ok(start>=0&&end>start);return source.slice(start,end);};
-const context=vm.createContext({AbortController,Promise,encodeURIComponent,isAdmin:()=>true});
+const context=vm.createContext({toolSheet:{open(){}},AbortController,Promise,encodeURIComponent,isAdmin:()=>true});
 vm.runInContext('(function(){'+fs.readFileSync(new URL('../web/math.js',import.meta.url),'utf8').replace(/^export /gm,'')+';Object.assign(globalThis,{mathText,mathMarkdown,sourceSelection});})()',context);
 vm.runInContext(between('// A page','export async function mountReader').replaceAll('export ',''),context);
 const box={x:.1,y:.1,width:.3,height:.15};

@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {runtime,load,root,esc,settle} from './ui-harness.mjs';
+const c=runtime();for(const name of ['math.js','paper-insights.js','paper-feedback.js','graph-ui.js','research-ui.js'])load(c,name);
+const a={id:'a',graph_id:'a',title:'Paper <img onerror=bad()>',direction_name:'Direction'},b={id:'b',graph_id:'b',title:'Neighbor B',score:.9},d={id:'d',graph_id:'d',title:'Neighbor D',score:.6};
+const data={center:a,nodes:[a,b,d],related:[b,d],edges:[{source:'a',target:'b',score:.9},{source:'b',target:'d',score:.6},{source:'a',target:'d',score:.2,weak:true}],known_edges:3,weak_edges:1,hidden_edges:0,total_related:2};
+const html=c.graphMarkup(data,esc);assert.equal((html.match(/<line /g)||[]).length,3);assert.match(html,/weak-edge/);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img/);
+const widths=[...html.matchAll(/stroke-width="([\d.]+)"/g)].map(x=>+x[1]);assert.ok(widths[0]>widths[1]&&widths[1]>widths[2]);
+const positions=c.graphLayout(data.nodes,data.edges);assert.ok(positions.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.x<=800));
+assert.equal(c.compactRelatedMarkup({...data,related:[b,d,b,d]},esc).match(/data-related-read=/g).length,3);
+const h=root(),requests=[],opened=[],added=[];let deferred;
+const api=async(path,options)=>{requests.push({path,options});if(path.includes('paper=slow'))return await new Promise(resolve=>deferred=resolve);if(path.startsWith('/relations/search'))return {items:[b]};return structuredClone(data);};
+const state={};const graph=c.mountGraph(h.root,{api,esc,state,focus:{paper:'a',project_id:'p'},onOpen:p=>opened.push(p),onAdd:p=>added.push(p)});await settle();
+assert.match(requests[0].path,/min_score=0.45/);assert.match(h.root.innerHTML,/连线阈值/);assert.match(h.root.innerHTML,/弱关联用虚线显示/);
+await h.handlers.get('change')({target:{value:'.8',hasAttribute:n=>n==='data-graph-min'}});await settle();assert.match(requests.at(-1).path,/min_score=0.8/);
+await h.handlers.get('change')({target:{checked:true,hasAttribute:n=>n==='data-graph-weak'}});await settle();assert.match(requests.at(-1).path,/include_weak=true/);
+await h.click({graphZoom:'in'});assert.match(h.node('.graph-transform').attributes.transform,/scale\(1.2\)/);await h.click({graphZoom:'reset'});assert.match(h.node('.graph-transform').attributes.transform,/scale\(1\)/);
+let captured;const svg={getBoundingClientRect:()=>({width:400}),setPointerCapture:id=>captured=id,hasPointerCapture:()=>true,releasePointerCapture:()=>captured=null};
+h.handlers.get('pointerdown')({button:0,pointerId:1,clientX:10,clientY:20,target:{closest:selector=>selector==='.paper-network'?svg:null}});h.handlers.get('pointermove')({pointerId:1,clientX:30,clientY:40});assert.match(h.node('.graph-transform').attributes.transform,/translate\(40,40\)/);h.handlers.get('pointerup')();assert.equal(captured,null);
+await h.click({graphMode:'references'});assert.match(h.root.innerHTML,/引用关系数据待补充/);assert.doesNotMatch(h.root.innerHTML,/data-graph-open="0"/);
+await h.click({graphOpen:'center'});assert.equal(opened[0].id,'a');await h.click({graphAdd:'0'});assert.equal(added[0].id,'b');
+const slow=h.click({graphNode:'slow'});await settle();await h.click({graphNode:'b'});deferred({...data,center:{...a,title:'STALE'}});await slow;assert.doesNotMatch(h.root.innerHTML,/STALE/);assert.match(requests.at(-1).path,/project_id=p/);assert.match(h.root.innerHTML,/class="paper-network"/);
+const form={matches:()=>true,data:{q:'<query>'}};await h.handlers.get('submit')({target:form,preventDefault(){},stopPropagation(){}});assert.match(h.root.innerHTML,/Neighbor B/);
+const keyNode={dataset:{graphNode:'d'},hasAttribute:n=>n==='data-graph-node',closest(){return this;}};let prevented=false;h.handlers.get('keydown')({key:'Enter',target:keyNode,preventDefault(){prevented=true;},stopPropagation(){}});await settle();assert.ok(prevented);assert.match(requests.at(-1).path,/paper=d/);
+graph.dispose();assert.equal(h.handlers.size,0);
+// IME, modifier and busy handling exercise the actual shared Enter controller.
+const sent=[];const options={kind:'qa',busy:false,composing:false,submit:q=>sent.push(q)};
+const event=extra=>({target:{name:'question',form:{id:'research-question-form'},value:'  Why?  '},key:'Enter',preventDefault(){this.prevented=true;},stopPropagation(){},...extra});
+assert.equal(c.questionEnter(event(),options),true);assert.deepEqual(sent,['Why?']);
+for(const e of [event({shiftKey:true}),event({isComposing:true}),event({keyCode:229}),event({ctrlKey:true}),event({key:'a'})])assert.equal(c.questionEnter(e,options),false);
+c.questionEnter(event({repeat:true}),options);c.questionEnter(event(),{...options,busy:true});c.questionEnter(event(),{...options,composing:true});assert.equal(sent.length,1);
+// Generated abstracts retain math and carry caveats alongside each reason.
+vm.runInContext(fs.readFileSync(new URL('../web/vendor/katex.min.js',import.meta.url),'utf8'),c);
+const insights=c.insightMarkup({abstract:'Author text',reading_card:{abstract:('a '.repeat(130))+'$\\frac{x}{y}$',coverage:'selected_pages',reasons:[{reason:'Use $x^2$',who_benefits:'Readers',caveat:'Small sample <unsafe>',caveat_basis:'inference'},{reason:'Second',caveat:'Only simulation',caveat_basis:'reported'}]}},{compact:true});
+assert.match(insights,/<mfrac>/);assert.match(insights,/生成摘要/);assert.match(insights,/非作者原摘要/);assert.match(insights,/限制（推断）/);assert.match(insights,/限制（材料陈述）/);assert.match(insights,/Only simulation/);assert.match(insights,/&lt;unsafe&gt;/);assert.match(insights,/Author text/);
+console.log('PASS: full graph network, weighted/dashed edges, threshold controls, zoom/pan/keyboard/recenter/races, Enter IME guards and generated-card math/caveats');

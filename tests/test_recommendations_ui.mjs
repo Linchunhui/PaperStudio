@@ -94,7 +94,7 @@ assert.doesNotMatch(el('#recommendation-results').innerHTML,/加入项目并处�
 const completeAbstract='A long original abstract. '.repeat(40);
 const expanded=context.insightMarkup({abstract:completeAbstract},{compact:true});
 assert.ok(expanded.includes(completeAbstract),'The collapsed preview retains the complete abstract');
-assert.match(expanded,/<details><summary>展开完整摘要/);
+assert.match(expanded,/<details class="reading-abstract">[\s\S]*展开完整摘要/);
 assert.doesNotMatch(context.insightMarkup({}),/结构化解读/,'Missing interpretation is not fabricated');
 
 behavior = () => result([malicious, second]);

@@ -1,6 +1,6 @@
 import {loadProfile} from './recommendations-ui.js';
 import {paperCards,bindPaperAction} from './paper-cards.js';
-export function mountExplore(root,{api,esc,safeURL,toast,onOpen,onAdd,onProfile,legacy,state={}}){
+export function mountExplore(root,{api,esc,safeURL,toast,onOpen,onAdd,onGraph,onProfile,legacy,state={}}){
   let disposed=false,sequence=0,controller;
   Object.assign(state,{q:state.q||'',scope:state.scope||'catalog',sort:state.sort||'relevance',page:1,items:[],columns:state.columns||2,category:state.category||'',topic:state.topic||''});
   const find=q=>root.querySelector(q);
@@ -30,6 +30,7 @@ export function mountExplore(root,{api,esc,safeURL,toast,onOpen,onAdd,onProfile,
   async function click(event){
     const b=event.target.closest('button');if(!b||!root.contains(b))return;event.stopPropagation();
     try{
+      if(b.dataset.paperGraph!==undefined){await onGraph(state.items[Number(b.dataset.paperGraph)]);return;}
       const action=bindPaperAction(b,state.items,{onOpen,onAdd,onTopic:async item=>{const c=item.classification?.primary;if(!c)return;state.category=c.category_id;state.topic=c.topic_id||'';state.topicName=c.topic_name||c.category_name;state.page=1;state.items=[];shell();await load();}});if(action){b.disabled=true;await action;return;}
       if('paperDismiss' in b.dataset){b.disabled=true;const item=state.items[Number(b.dataset.paperDismiss)];await api('/recommendations/'+encodeURIComponent(item.id)+'/dismiss',{method:'POST'});if(!disposed){state.items=state.items.filter(i=>i.id!==item.id);paint();}return;}
       if(b.dataset.columns){state.columns=Number(b.dataset.columns);for(const control of root.querySelectorAll('[data-columns]'))control.setAttribute('aria-pressed',String(Number(control.dataset.columns)===state.columns));paint();return;}

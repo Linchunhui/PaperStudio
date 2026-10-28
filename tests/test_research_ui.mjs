@@ -105,3 +105,13 @@ assert.equal(readCalls.filter(r=>r.options.method).length,0);
 await context.openResearchPanel({...readerDetails,project_id:'other-project',kind:'qa',sessionTab:'qa',resume:true});
 assert.doesNotMatch(node('#reader-research-panel').innerHTML,/保留选区问题草稿|First selected sentence/);
 console.log('PASS: saved structured interpretation, separate reader tabs, selected question drafts and project isolation without implicit model calls');
+// Exercise the mounted handler as well as the pure Enter guard.
+await context.openResearchPanel({...readerDetails,project_id:'keyboard-project',kind:'qa',sessionTab:'qa',resume:true});
+const qa=node('#reader-research-panel'),beforeEnter=readCalls.filter(r=>r.options.method==='POST').length;
+const keyboard=extra=>({key:'Enter',target:{name:'question',value:'Explain the evidence',form:{id:'research-question-form'}},preventDefault(){},stopPropagation(){},...extra});
+qa.onkeydown(keyboard({shiftKey:true}));qa.onkeydown(keyboard({isComposing:true}));qa.onkeydown(keyboard({keyCode:229}));
+assert.equal(readCalls.filter(r=>r.options.method==='POST').length,beforeEnter);
+qa.onkeydown(keyboard({}));for(let i=0;i<40;i++)await Promise.resolve();
+assert.equal(readCalls.filter(r=>r.options.method==='POST').length,beforeEnter+1);
+assert.equal(readCalls.findLast(r=>r.options.method==='POST').options.body.question,'Explain the evidence');
+console.log('PASS: mounted Q&A Enter sends exactly one request, while newline and composition keys do not');
