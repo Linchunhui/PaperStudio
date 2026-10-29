@@ -43,6 +43,7 @@ with tempfile.TemporaryDirectory(prefix='paperstudio-browser-') as data:
                 page.wait_for_url('**/read/**')
                 layer=page.locator('.pdf-page[data-side=original] .text-layer').first
                 expect(layer).to_be_visible(timeout=20000)
+                page.locator('.pdf-page[data-side=original] img').first.evaluate('img => img.decode()')
                 span=layer.locator('span').filter(has_text='A paper becomes useful').first
                 expect(span).to_be_visible()
                 layer.focus()
@@ -55,6 +56,7 @@ with tempfile.TemporaryDirectory(prefix='paperstudio-browser-') as data:
                 page.reload()
                 page.locator('[data-reader-tab=notes]').click()
                 expect(page.get_by_text('Browser regression: evidence stays with the selected original.',exact=True)).to_be_visible()
+                page.locator('.pdf-page[data-side=original] img').first.evaluate('img => img.decode()')
                 page.screenshot(path=str(OUTPUT/'reader-desktop.png'),full_page=True)
                 assert page.request.get(base+'/api/jobs').json()==[]
                 page.goto(base+'/?view=skills')
