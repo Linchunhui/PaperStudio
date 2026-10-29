@@ -46,9 +46,18 @@ try:
     assert request('/api/papers/'+paper['paper_id']+'/file').startswith(b'%PDF-')
     assert b'PaperStudio' in request('/demo/')
     assert request('/api/jobs')==[]
-    docker('restart',name);ready()
+    docker('restart',name)
+    # Docker may allocate a different ephemeral host port on restart.
+    port=docker('port',name,'8000/tcp').rsplit(':',1)[1]
+    base='http://127.0.0.1:'+port
+    ready()
     assert request('/api/onboarding/sample',{})['paper_id']==paper['paper_id']
     assert request('/api/papers/'+paper['paper_id']+'/file').startswith(b'%PDF-')
     print('Container startup, non-root user, setup, model-free PDF and persistent restart passed.')
+except Exception:
+    # CI uses generated test accounts only. Service logs aid diagnosis without
+    # dumping container environment variables or authentication configuration.
+    subprocess.run(['docker','logs','--tail','80',name],check=False)
+    raise
 finally:
     subprocess.run(['docker','rm','-f','-v',name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

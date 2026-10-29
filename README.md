@@ -11,6 +11,8 @@ PaperStudio 是可自部署的论文研究工作台。把 arXiv 链接或 PDF �
 
 适合持续跟进一个研究方向的个人和小组。**不配置模型，也能阅读、做笔记、整理项目和导出。** AI 功能使用你自己的兼容 API、本地模型或可选 Codex。
 
+[![PaperStudio read-only demo](docs/demo-preview.png)](https://linchunhui.github.io/PaperStudio/)
+
 ## 先看看
 
 [打开只读交互演示 →](https://linchunhui.github.io/PaperStudio/)

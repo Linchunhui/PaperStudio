@@ -27,7 +27,8 @@ jobs:
       - run: python scripts/package_data.py --output dist
       - run: python scripts/verify_data_package.py dist
   browser:
-    runs-on: ubuntu-latest
+    # Match the browser dependency set instead of following a moving OS alias.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

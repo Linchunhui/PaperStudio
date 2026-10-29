@@ -8,6 +8,8 @@ PaperStudio is a self-hosted research workspace for individuals and small groups
 
 **Start without a model.** PDFs, notes, nested projects and exports work independently. AI tasks use your own compatible API, local model service, or optional Codex CLI. The application UI is currently primarily Chinese; this README provides an English getting-started path.
 
+[![PaperStudio read-only demo](docs/demo-preview.png)](https://linchunhui.github.io/PaperStudio/)
+
 ## Try it
 
 The [read-only demo](https://linchunhui.github.io/PaperStudio/) requires no account or key. It includes self-authored documents, prepared translations and a one-minute guided tour. It demonstrates the interface without running a model. The same demo is available at `/demo/` on your server, or as `paperstudio-demo.zip` in Releases.
