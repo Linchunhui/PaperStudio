@@ -1,12 +1,16 @@
 # 模型、解析和译文复用
 
-PaperStudio 默认模型标识为 `gpt-6-luna`。这只是服务器配置的默认值，模型是否可用取决于服务账号及实际服务端权限；未安装程序、未登录或模型不可用时返回真实错误，不生成替代答案。
+新安装默认不配置模型，原 PDF、笔记、项目和导出可以直接使用。管理员在“Skill 与配置”中选择兼容 API、本地模型或 Codex，保存后对新任务生效。已有部署的环境变量继续使用，直到管理员显式保存网页配置。
+
+网页保存的配置位于数据目录 `model-settings.json`，文件权限为 0600，不向浏览器回传密钥；保存的配置优先于环境变量。“使用部署环境配置”移除网页覆盖，`PAPERSTUDIO_MODEL_CONFIG=environment` 可锁定为部署环境。备份数据目录时也会备份这个凭据文件，请按私有备份保管。
+
+“配置已填写”“运行组件可用”“连接 / 登录”“实际模型调用”是四种不同状态。连接测试检查 `/models` 或 CLI 登录，不生成内容；实际调用使用短测试消息，可能产生少量费用。部分兼容服务没有 `/models`，连接测试可能不通过但实际调用可用。测试结果只对应当时保存的模型配置。
 
 ## Codex 与兼容 API
 
 `AI_PROVIDER=codex` 使用服务器已安装并登录的 `CODEX_BIN`，调用 `codex exec`。提示词从标准输入文件传入，支持长材料；最终回答从 `--output-last-message` 读取。每次执行使用临时目录、`--ephemeral`、`--ignore-user-config`、只读沙箱，并关闭命令执行、App、Hook、子代理、远端插件和 Web 搜索能力。普通用户不能提交 CLI 参数或服务器路径。必须使用支持这些官方选项的当前 CLI；旧版本会明确失败。
 
-`AI_PROVIDER=openai` 使用 `AI_BASE_URL`、`AI_API_KEY` 与 `AI_MODEL`，请求兼容的 `/chat/completions` 接口。非本机服务必须配置密钥。图表问答使用内嵌图像消息；模型不支持视觉时保留服务错误，不把纯文本结果标成看过图像。
+`AI_PROVIDER=openai` 使用 `AI_BASE_URL`、`AI_API_KEY` 与 `AI_MODEL`，请求兼容的 `/chat/completions` 接口。普通 API 模式要求密钥；`AI_PROVIDER=local` 允许连接可信的本地或局域网模型且不使用系统 HTTP 代理。Docker 连接宿主机可使用 `http://host.docker.internal:11434/v1`，模型服务需监听容器可达的接口，避免将无认证模型端口暴露到公网。图表问答使用内嵌图像消息；模型不支持视觉时保留服务错误，不把纯文本结果标成看过图像。
 
 `AI_TIMEOUT_SECONDS` 控制调用时限；`AI_MAX_INPUT_CHARS` 是应用输入保护阈值，超限报错而不悄悄截断。`AI_MAX_OUTPUT_TOKENS` 传给兼容 API；Codex 的实际输出容量受 CLI/模型限制。取消会停止 Codex/BabelDOC 子进程组，或关闭应用的 HTTP 请求连接，并且不发布晚到回答。已经发出的远端请求可能继续计费。
 

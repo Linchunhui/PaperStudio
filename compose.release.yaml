@@ -1,0 +1,38 @@
+name: paperstudio
+services:
+  paperstudio:
+    image: ${PAPERSTUDIO_IMAGE:-ghcr.io/linchunhui/paperstudio:0.5.0}
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PAPERSTUDIO_PORT:-8000}:8000"
+    environment:
+      PAPERSTUDIO_DATA_DIR: /data
+      PAPERSTUDIO_HOST: 0.0.0.0
+      PAPERSTUDIO_PORT: "8000"
+      PAPERSTUDIO_SEED_DEMO: "0"
+      PAPERSTUDIO_CATALOG_MODE: ${PAPERSTUDIO_CATALOG_MODE:-light}
+      PAPERSTUDIO_ALLOWED_HOSTS: ${PAPERSTUDIO_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}
+      PAPERSTUDIO_COOKIE_SECURE: ${PAPERSTUDIO_COOKIE_SECURE:-0}
+      PAPERSTUDIO_TRUSTED_PROXIES: ${PAPERSTUDIO_TRUSTED_PROXIES:-127.0.0.1}
+      AI_PROVIDER: ${AI_PROVIDER:-none}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-}
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - paperstudio-data:/data
+      - codex-auth:/home/paperstudio/.codex
+      - babeldoc-cache:/home/paperstudio/.cache
+    stop_grace_period: 45s
+volumes:
+  paperstudio-data:
+    name: ${PAPERSTUDIO_DATA_VOLUME:-paperstudio_paperstudio-data}
+  codex-auth:
+    name: ${PAPERSTUDIO_CODEX_VOLUME:-paperstudio_codex-auth}
+  babeldoc-cache:
+    name: ${PAPERSTUDIO_CACHE_VOLUME:-paperstudio_babeldoc-cache}

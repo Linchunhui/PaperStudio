@@ -14,7 +14,11 @@ CARDS_DIR=core.ROOT/'config'/'reading-cards'
 
 @lru_cache(maxsize=1)
 def index():
-    manifest=json.loads(read_data_bytes(CARDS_DIR/'manifest.json'))
+    from .data_bundles import component_path
+    directory=component_path('reading-cards',CARDS_DIR)
+    if not (directory/'manifest.json').is_file():
+        return {'papers':{},'shards':[],'export_date':None},defaultdict(list)
+    manifest=json.loads(read_data_bytes(directory/'manifest.json'))
     urls=defaultdict(list)
     for key,paper in manifest['papers'].items():
         if paper.get('url'):
@@ -25,7 +29,8 @@ def index():
 @lru_cache(maxsize=16)
 def shard(identifier):
     entry=next(s for s in index()[0]['shards'] if s['id']==identifier)
-    raw=(CARDS_DIR/entry['file']).read_bytes()
+    from .data_bundles import component_path
+    raw=(component_path('reading-cards',CARDS_DIR)/entry['file']).read_bytes()
     if hashlib.sha256(raw).hexdigest()!=entry['sha256']:
         raise ValueError('Reading-card checksum mismatch')
     content=gzip.decompress(base64.b64decode(raw,validate=True))

@@ -7,6 +7,7 @@ import html
 import unicodedata
 import io
 import json
+import os
 import re
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -23,7 +24,7 @@ DOI = re.compile(r"10\.\d{4,9}/\S+\Z", re.I)
 SEED_DIR = core.ROOT / "config" / "catalog"
 
 
-def init_catalog(seed=True):
+def init_catalog(seed=True,force=False):
     with core.db() as con:
         con.executescript("""
         CREATE TABLE IF NOT EXISTS catalog_papers (
@@ -75,14 +76,16 @@ def init_catalog(seed=True):
             con.execute("INSERT OR IGNORE INTO catalog_facets SELECT p.id,'author',a.value FROM catalog_papers p,json_each(p.data,'$.authors') a WHERE a.type='text' AND trim(a.value)!=''")
             con.execute("INSERT INTO catalog_migrations VALUES('author-facets-v1','{}',?)", (core.now(),))
     _reindex_directions()
-    if seed:
-        manifest = SEED_DIR / "manifest.json"
+    if seed and (force or os.environ.get('PAPERSTUDIO_CATALOG_MODE','full')!='light' or (core.DATA_DIR/'full-catalog-enabled').exists()):
+        from .data_bundles import component_path
+        seed_dir = component_path('catalog',SEED_DIR)
+        manifest = seed_dir / "manifest.json"
         paths = []
         if manifest.exists():
             try:
                 listing = json.loads(manifest.read_text())
                 entries = listing.get("shards", [])
-                paths = [SEED_DIR / entry["file"] for entry in entries if Path(entry["file"]).name == entry["file"]]
+                paths = [seed_dir / entry["file"] for entry in entries if Path(entry["file"]).name == entry["file"]]
                 if len(paths) != len(entries):
                     raise ValueError("种子文件路径无效")
                 # Verify the complete replacement before retiring legacy seed
@@ -100,7 +103,7 @@ def init_catalog(seed=True):
             # A source-only deployment still ships the existing 14 v1 shards.
             # Keep all of them active until a complete, verified v2 manifest
             # explicitly replaces them; no institution exclusions on upgrade.
-            paths = sorted(SEED_DIR.glob("*.json"))
+            paths = sorted(seed_dir.glob("*.json"))
         for path in paths:
             try:
                 if path.stat().st_size > MAX_BYTES:
@@ -109,7 +112,7 @@ def init_catalog(seed=True):
             except (HTTPException, OSError):
                 # One bad seed must not make existing reading unavailable.
                 continue
-        if (SEED_DIR.parent/'reading-cards'/'manifest.json').is_file():
+        if (component_path('reading-cards',SEED_DIR.parent/'reading-cards')/'manifest.json').is_file():
             from .reading_cards import init_catalog_cards
             init_catalog_cards()
 

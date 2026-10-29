@@ -17,10 +17,14 @@ GRAPH_DIR = core.ROOT / 'config' / 'relations'
 
 @lru_cache(maxsize=1)
 def bundle():
-    manifest = json.loads((GRAPH_DIR/'manifest.json').read_text())
+    from .data_bundles import component_path
+    directory=component_path('relations',GRAPH_DIR)
+    if not (directory/'manifest.json').is_file():
+        raise HTTPException(503,'尚未安装关系数据包，请在管理员设置中加载完整数据。')
+    manifest = json.loads((directory/'manifest.json').read_text())
     nodes, titles, groups = {}, defaultdict(list), {}
     for entry in manifest['groups']:
-        raw = read_data_bytes(GRAPH_DIR/entry['file'])
+        raw = read_data_bytes(directory/entry['file'])
         if hashlib.sha256(raw).hexdigest() != entry['sha256']:
             raise HTTPException(503, '论文关系数据校验失败')
         group = json.loads(raw)

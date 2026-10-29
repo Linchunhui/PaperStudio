@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 安全问题 / Security
+    url: https://github.com/Linchunhui/PaperStudio/blob/main/SECURITY.md
+    about: 查看私密反馈说明；不要公开凭据或漏洞利用细节。

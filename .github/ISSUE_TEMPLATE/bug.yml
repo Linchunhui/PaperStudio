@@ -1,0 +1,26 @@
+name: Bug / 使用问题
+description: 帮助复现一次失败的真实操作 / Report a reproducible problem
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 操作、预期与实际结果 / What happened?
+      description: 给出最短复现步骤。不要包含密钥、会话、私有论文或个人数据库。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / Commit or image tag
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境 / Environment
+      description: 操作系统、架构、Docker 或源码、浏览器；涉及 AI 时说明服务和模型 ID，不要填写密钥。
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 脱敏错误信息 / Sanitized error
+      description: 可附自编文档或截图。先删除令牌、姓名、路径和私有内容。

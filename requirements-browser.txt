@@ -1,0 +1,2 @@
+# Optional CI/browser regression dependency; not needed to run the service.
+playwright==1.56.0

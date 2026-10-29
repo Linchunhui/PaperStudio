@@ -31,7 +31,7 @@ const payload = path => {
   if(path.startsWith('/api/papers'))return libraryRows;
   throw new Error('Unexpected endpoint: '+path);
 };
-const context=vm.createContext({mountReader:()=>{},feedbackMarkup:()=>'',mountFeedback:()=>({dispose(){}}),console,URL,URLSearchParams,Headers,FormData:Fields,location:{pathname:'/',search:''},history:{replaceState(){}},document:{querySelector:el},window:{addEventListener(type,fn){lifecycle.set(type,fn);}},localStorage:{getItem(){return null;},setItem(){}},setTimeout(){return 1;},clearTimeout(){},fetch:async(path,request)=>{
+const context=vm.createContext({mountReader:()=>{},mountWelcome:()=>({dispose(){}}),mountModelSettings:()=>({dispose(){}}),mountPortability:()=>({dispose(){}}),mountDataBundle:()=>({dispose(){}}),mountProjectTemplates:()=>({dispose(){}}),feedbackMarkup:()=>'',mountFeedback:()=>({dispose(){}}),console,URL,URLSearchParams,Headers,FormData:Fields,location:{pathname:'/',search:''},history:{replaceState(){}},document:{querySelector:el},window:{addEventListener(type,fn){lifecycle.set(type,fn);}},localStorage:{getItem(){return null;},setItem(){}},setTimeout(){return 1;},clearTimeout(){},fetch:async(path,request)=>{
   requests.push({path,request});
   if(path.startsWith('/api/discovery/search?')&&path.includes('q=slow'))return new Promise(resolve=>{slowSearchResolve=()=>resolve({ok:true,headers:new Headers({'content-type':'application/json'}),json:async()=>({items:[{id:'new',kind:'paper',title:'New search paper',url:'https://arxiv.org/abs/2501.12948',source_id:'arxiv'}],statuses:[]})});});
   const data=request.method==='POST'?{id:'i1',paper_id:'p1',status:'queued'}:payload(path);

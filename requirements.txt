@@ -5,4 +5,5 @@ httpx==0.28.1
 PyMuPDF==1.26.6
 PyYAML==6.0.3
 numpy==2.3.5
+bibtexparser==1.4.3
 

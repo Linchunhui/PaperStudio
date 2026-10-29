@@ -54,3 +54,29 @@ def seed_sample():
     core.attach_translation(paper['id'], sample_pdf(True), 'reading-sample.zh.pdf')
     with core.db() as con:
         con.execute("INSERT OR REPLACE INTO app_settings VALUES('sample-seeded',?)", (paper['id'],))
+
+
+def create_personal_sample():
+    """The same real reading surface, with clearly self-authored sample assets."""
+    from fastapi import HTTPException
+    key='personal-sample:'+core.current_user_id()
+    with core.db() as con:
+        con.execute('CREATE TABLE IF NOT EXISTS app_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
+        previous=con.execute('SELECT value FROM app_settings WHERE key=?',(key,)).fetchone()
+    if previous:
+        try:
+            paper=core.get_paper(previous['value'])
+            core.link_paper(paper['id'],'inbox')
+            return {'paper_id':paper['id'],'project_id':core.resolve_project_id('inbox'),
+                    'url':f"/read/{paper['id']}?project={core.resolve_project_id('inbox')}",
+                    'sample':True,'model_called':False}
+        except HTTPException:
+            pass
+    paper = core.add_paper(sample_pdf(False), 'inbox', '阅读与证据 · 自编 PDF 示例（非论文）', 'reading-sample.pdf')
+    if not paper.get('translated_sha256'):
+        core.attach_translation(paper['id'], sample_pdf(True), 'reading-sample.zh.pdf')
+    with core.db() as con:
+        con.execute('INSERT OR REPLACE INTO app_settings VALUES(?,?)',(key,paper['id']))
+    return {'paper_id': paper['id'], 'project_id': core.resolve_project_id('inbox'),
+            'url': f"/read/{paper['id']}?project={core.resolve_project_id('inbox')}",
+            'sample': True, 'model_called': False}

@@ -40,9 +40,13 @@ def request_context(cancelled):
 
 def settings():
     from .ai import ConfigurationError, _positive_int
-    base = os.environ.get("AI_BASE_URL", "").strip().rstrip("/")
-    provider = os.environ.get("AI_PROVIDER", "openai" if base else "codex").strip().lower()
-    model = os.environ.get("AI_MODEL", "gpt-6-luna").strip()
+    from .model_settings import configured_values
+    values = configured_values()
+    base = values.get('base_url', '')
+    provider = values.get('provider', 'none')
+    if provider == 'none':
+        raise ConfigurationError('尚未配置模型；阅读、笔记和目录仍可使用。请在管理员设置中连接模型。')
+    model = values.get('model', '').strip()
     if not model or len(model) > 200:
         raise ConfigurationError("AI_MODEL 不能为空且须少于 200 字符。")
     common = {"provider": provider, "model": model,
@@ -54,9 +58,9 @@ def settings():
         if not executable:
             raise ConfigurationError("服务端未安装 Codex CLI。安装并完成服务账号登录，或配置 AI_PROVIDER=openai 与兼容 API。")
         return {**common, "executable": executable, "base_url": "codex://exec", "api_key": ""}
-    if provider != "openai":
-        raise ConfigurationError("AI_PROVIDER 只支持 codex 或 openai。")
-    key = os.environ.get("AI_API_KEY", "").strip()
+    if provider not in {"openai", "local"}:
+        raise ConfigurationError("AI_PROVIDER 支持 none、codex、openai 或 local。")
+    key = values.get('api_key', '')
     parsed = urlsplit(base)
     if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ConfigurationError("AI_BASE_URL 须为无用户信息、查询参数或片段的 HTTP(S) API 基地址。")
@@ -65,7 +69,7 @@ def settings():
         local = local or ipaddress.ip_address(parsed.hostname).is_loopback
     except ValueError:
         pass
-    if not local and not key:
+    if not local and not key and provider != 'local':
         raise ConfigurationError("远程模型服务需要 AI_API_KEY；仅本机 loopback 服务允许无密钥。")
     return {**common, "base_url": base, "api_key": key}
 
@@ -188,7 +192,7 @@ def _openai(system, source, cfg, images, cancelled):
     # The request owns its client. Cancellation closes that connection and never
     # publishes a late reply. Remote providers may still bill already-started work.
     hostname = urlsplit(cfg["base_url"]).hostname
-    local = hostname == "localhost"
+    local = cfg["provider"] == "local" or hostname == "localhost"
     try:
         local = local or ipaddress.ip_address(hostname).is_loopback
     except (ValueError, TypeError):

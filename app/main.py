@@ -7,6 +7,8 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from . import core, jobs, imports, discovery, catalog, auth, research
 from .core_routes import router as core_router
@@ -24,11 +26,15 @@ from .recommendation_vectors import init_vectors
 from .paper_feedback import init_feedback
 from .feedback_routes import router as feedback_router
 from .relations_routes import router as relations_router
+from .onboarding_routes import router as onboarding_router
+from .portability_routes import router as portability_router
 
 
 @asynccontextmanager
 async def lifespan(app):
     core.init_db()
+    from . import bibliography
+    bibliography.init_db()
     jobs.init_jobs()
     imports.init_imports()
     discovery.init_discovery()
@@ -51,7 +57,16 @@ async def lifespan(app):
         jobs.stop_worker()
 
 
-app = FastAPI(title='PaperStudio', version='0.4.0', lifespan=lifespan)
+app = FastAPI(title='PaperStudio', version='0.5.0', lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def safe_settings_validation(request, exc):
+    if request.url.path.startswith('/api/admin/model-settings'):
+        return JSONResponse({'detail': '模型配置无效。请检查服务类型、模型名称和 API 基地址。'}, status_code=422)
+    return await request_validation_exception_handler(request, exc)
+
+
 allowed_hosts = [v.strip() for v in os.environ.get('PAPERSTUDIO_ALLOWED_HOSTS', 'localhost,127.0.0.1,[::1],testserver,terminal.local').split(',') if v.strip()]
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
@@ -103,6 +118,8 @@ app.include_router(research_router)
 app.include_router(recommendation_router)
 app.include_router(feedback_router)
 app.include_router(relations_router)
+app.include_router(onboarding_router)
+app.include_router(portability_router)
 
 
 @app.get('/api/sources')
@@ -118,5 +135,7 @@ def index(paper_id: str | None = None):
 
 
 app.mount('/static', StaticFiles(directory=core.ROOT / 'web'), name='static')
+if (core.ROOT/'demo').is_dir():
+    app.mount('/demo',StaticFiles(directory=core.ROOT/'demo',html=True),name='public-demo')
 
 

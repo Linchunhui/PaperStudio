@@ -3,10 +3,11 @@ services:
     image: paperstudio:local
     build:
       context: .
+      target: codex
       args:
         INSTALL_BABELDOC: "0"
-        CODEX_PACKAGE: "@openai/codex@latest"
-        BABELDOC_PACKAGE: "BabelDOC"
+        CODEX_PACKAGE: "@openai/codex@0.165.0"
+        BABELDOC_PACKAGE: "BabelDOC==0.6.4"
     init: true
     restart: unless-stopped
     ports:
@@ -21,6 +22,8 @@ services:
       - paperstudio-data:/data
       - codex-auth:/home/paperstudio/.codex
       - babeldoc-cache:/home/paperstudio/.cache
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     stop_grace_period: 45s
 volumes:
   paperstudio-data:
