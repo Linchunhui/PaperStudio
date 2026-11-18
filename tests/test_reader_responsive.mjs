@@ -134,3 +134,53 @@ available=600;win.innerWidth=600;const mobileResize=resize.resizeReader();flush(
 assert.equal(resize.state.narrow,true);fire('pointerdown');assert.equal(capture,null);
 assert.equal(destinations.at(-1).remember,false);
 console.log('PASS: sidebar drag/keyboard bounds, width persistence, page position, cancellation, cleanup and mobile breakpoint');
+
+// Run the production wheel/zoom handlers against scrolling page geometry.
+// Rapid events must preserve the pointer's PDF location without async jumps.
+const zoom=vm.createContext({Number,Math});
+const zoomState={zoom:100,page:2,readingMode:'pdf',disposed:false,pairs:new Map()};
+let top=500,left=0,positionReads=0,scrollUpdates=0;
+const zoomScroll={clientWidth:850,clientHeight:650,
+ get scrollTop(){return top;},set scrollTop(v){top=Math.max(0,v);},
+ get scrollLeft(){return left;},set scrollLeft(v){left=Math.max(0,v);},
+ getBoundingClientRect:()=>({left:10,top:80})};
+const zoomStyles={setProperty(name,value){this[name]=value;}};
+const frame=side=>({getBoundingClientRect(){const scale=zoomState.zoom/100;return {
+ left:30+(side==='translation'?400*scale+18:0)-left,top:80+20+560*scale+51+25-top,
+ width:400*scale,height:560*scale};}});
+const originalFrame=frame('original'),translationFrame=frame('translation');
+zoomState.pairs.set(2,originalFrame);
+Object.assign(zoom,{state:zoomState,qs:id=>({'#document-scroll':zoomScroll,'#document-pages':{style:zoomStyles}}[id]),
+ readPosition(){positionReads++;},handleScroll(){scrollUpdates++;},
+ api(){assert.fail('Zoom must not request provider work');},goToPage(){assert.fail('Wheel zoom must not schedule a late page jump');}});
+vm.runInContext('let wheelZoomDelta=0,wheelZoomAt=0;',zoom);
+vm.runInContext(between('  async function setZoom(', '  function persistPosition('),zoom);
+let stamp=0;
+const wheel=(changes={})=>{const event={ctrlKey:true,metaKey:false,deltaY:-100,deltaMode:0,timeStamp:stamp+=20,clientX:240,clientY:350,
+ target:{closest:()=>originalFrame},prevented:false,preventDefault(){this.prevented=true;},...changes};zoom.handleZoomWheel(event);return event;};
+const pdfPoint=(element,x,y)=>{const r=element.getBoundingClientRect();return [(x-r.left)/r.width,(y-r.top)/r.height];};
+const pointBefore=pdfPoint(originalFrame,240,350);
+assert.equal(wheel({ctrlKey:false}).prevented,false);assert.equal(zoomState.zoom,100);
+assert.equal(wheel().prevented,true);assert.equal(zoomState.zoom,125);
+assert.equal(zoomStyles.width,'125%');assert.equal(zoomStyles['--reader-zoom'],'1.25');
+assert.equal(originalFrame.getBoundingClientRect().width,500);
+assert.equal(translationFrame.getBoundingClientRect().width,500,'translated PDF follows the same scale');
+for(const [i,value] of pdfPoint(originalFrame,240,350).entries())assert.ok(Math.abs(value-pointBefore[i])<1e-9,'pointer stays on the same PDF coordinate');
+wheel();wheel();assert.equal(zoomState.zoom,175,'rapid events apply in order without awaiting a frame');
+const translatedPoint=pdfPoint(translationFrame,720,350);
+wheel({target:{closest:()=>translationFrame},clientX:720});assert.equal(zoomState.zoom,200);
+for(const [i,value] of pdfPoint(translationFrame,720,350).entries())assert.ok(Math.abs(value-translatedPoint[i])<1e-9);
+assert.equal(wheel().prevented,true);assert.equal(zoomState.zoom,200,'upper limit still cancels browser zoom');
+wheel({ctrlKey:false,metaKey:true,deltaY:3,deltaMode:1});assert.equal(zoomState.zoom,175,'Mac modifier and line-mode wheel');
+wheel({deltaY:1,deltaMode:2});assert.equal(zoomState.zoom,150,'page-mode wheel');
+wheel({deltaY:20});wheel({deltaY:20});assert.equal(zoomState.zoom,150,'small trackpad deltas accumulate');
+wheel({deltaY:20});assert.equal(zoomState.zoom,125);
+wheel({deltaY:20});wheel({deltaY:-60});assert.equal(zoomState.zoom,150,'direction reverses immediately');
+wheel({deltaY:20});stamp+=300;wheel({deltaY:40});assert.equal(zoomState.zoom,150,'old gesture remainder expires');
+await zoom.setZoom(75);const readsAtLimit=positionReads;
+assert.equal(wheel({deltaY:100}).prevented,true);assert.equal(zoomState.zoom,75);assert.equal(positionReads,readsAtLimit);
+zoomState.readingMode='reflow';assert.equal(wheel().prevented,false);
+zoomState.readingMode='pdf';zoomState.disposed=true;assert.equal(wheel().prevented,false);
+assert.ok(scrollUpdates>0);
+assert.match(source,/listen\(scroll,'wheel',handleZoomWheel,\{passive:false\}\)/);
+console.log('PASS: Ctrl/Command wheel zoom, synchronized PDFs, pointer anchoring, rapid input, delta modes, limits and teardown');
