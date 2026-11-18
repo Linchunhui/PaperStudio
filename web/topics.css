@@ -1,0 +1,73 @@
+.topic-shell {
+  margin: 0;
+  background: #f7f7f3;
+  color: #202d28;
+  font: 16px/1.75 system-ui, -apple-system, "PingFang SC", sans-serif;
+}
+.topic-shell main { width: min(44rem, calc(100% - 36px)); margin: 0 auto; padding-bottom: 4rem; }
+.topic-shell header { margin: 2.5rem 0 2rem; }
+.topic-shell h1, .topic-shell h2 { line-height: 1.3; margin: .35em 0 .55em; }
+.topic-shell h1 { font-size: clamp(2rem, 6vw, 3.25rem); }
+.topic-shell p { margin: .65em 0; }
+.topic-nav, .topic-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem 1rem;
+  font-size: .875rem;
+  line-height: 1.5;
+}
+.topic-nav { margin: 1.25rem 0 .65rem; }
+.topic-version { margin-bottom: .75rem; }
+.topic-nav a, .topic-version a, .topic-shell a, .topic-evidence a { color: #1b6353; }
+.topic-kicker, .topic-meta { color: #485f55; font-size: .84rem; }
+.topic-kicker { font-weight: 650; letter-spacing: .05em; }
+.topic-card {
+  background: #fff;
+  border: 1px solid #dce2da;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  padding: clamp(1rem, 4vw, 1.6rem);
+}
+.topic-update {
+  background: #eef4ef;
+  border-inline-start: 2px solid #7b9d8b;
+  border-radius: 0 6px 6px 0;
+  padding: .9rem clamp(.9rem, 3vw, 1.25rem);
+  margin: 1.25rem 0;
+  overflow-wrap: anywhere;
+}
+.topic-update h4 { font-size: 1.1rem; line-height: 1.45; margin: .35rem 0 .65rem; }
+.topic-update p:first-child { margin-top: 0; }
+.topic-evidence { margin: .65rem 0 0; font-size: .9rem; }
+.topic-evidence summary { cursor: pointer; color: #23594a; font-weight: 650; }
+.topic-evidence ul { list-style: none; padding: 0; margin: .75rem 0 .25rem; }
+.topic-evidence li { border-top: 1px solid #ccdacf; padding: .65rem 0; }
+.topic-evidence blockquote { margin: 0 0 .2rem; font: 1em/1.55 Georgia, serif; }
+.topic-shell form { margin-top: 1.15rem; }
+.topic-shell label { display: block; font-size: .9rem; }
+.topic-shell textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 5rem;
+  padding: .5rem .6rem;
+  border: 1px solid #9aaea2;
+  border-radius: 4px;
+  font: inherit;
+  resize: vertical;
+}
+.topic-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .6rem; }
+.topic-shell button {
+  cursor: pointer;
+  padding: .55rem .85rem;
+  border: 1px solid #23594a;
+  border-radius: 5px;
+  background: #23594a;
+  color: #fff;
+  font: inherit;
+}
+.topic-shell button.topic-secondary { background: #fff; color: #23594a; }
+.topic-shell button:disabled { opacity: .65; cursor: wait; }
+#topic-feedback { color: #963e25; }
+@media print { .topic-nav, .topic-version { display: none; } }
