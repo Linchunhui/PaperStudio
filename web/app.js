@@ -1,3 +1,4 @@
+import {paperCards,openPaperFigure} from './paper-cards.js';
 import {mountReaderAccounts} from './reader-accounts.js';
 import {mountProjectTemplates} from './project-template-ui.js';
 import {mountDataBundle} from './data-bundle-ui.js';
@@ -130,7 +131,7 @@ async function mountWorkspace() {
   const selectedSources=stored('paperstudio-feed-sources',['hf','qbitai','jiqizhixin']);
   const state = {
     navOpen:false,catalogAdvancedOpen:false,disclosures:{},projects:[], papers:[], projectId:params.get('project')||'', view:params.get('invite')?'groups':params.get('view')==='sources'?'catalog':views.has(params.get('view'))?params.get('view'):(params.get('project')?'library':'discover'),
-    query:'', status:'all', includeChildren:true, sources:[], sourceGroups:{}, sourceQuery:'', priority:'all', skills:[], capabilities:{}, discoveryConfig:{}, loading:true, editProject:false,
+    query:'', status:'all', libraryColumns:2, libraryItems:[], includeChildren:true, sources:[], sourceGroups:{}, sourceQuery:'', priority:'all', skills:[], capabilities:{}, discoveryConfig:{}, loading:true, editProject:false,
     searchQuery:'', discoveryDirection:'', discoveryTopic:'', discoveryTaxonomy:null, discoveryHasMore:false, discoveryFilterScope:'', discoveryDirections:[], searchScope:'web', searchPage:1, discoveryMode:'feed', discoveryItems:[], discoveryStatuses:[], discoveryLoading:false, discoveryError:'', fetchedAt:null,
     interests:String(stored('paperstudio-interests','')), feedSources:new Set(Array.isArray(selectedSources)?selectedSources.filter(s=>['hf','qbitai','jiqizhixin'].includes(s)):['hf','qbitai','jiqizhixin']),
     imports:[], importError:'', importLoading:false,
@@ -317,10 +318,16 @@ async function mountWorkspace() {
     return `<div class="page-heading"><div><h1 tabindex="-1">${esc(project?.name||'我的论文库')}</h1><p>${project?esc(projectPath(project.id)):'同一篇论文可关联多个项目，笔记与阅读进度分别保存。'}</p></div><div class="actions">${project?'<button class="button" data-library-section="portability">导出成果</button><button class="button" data-action="project-compare">论文对比</button><button class="button" data-action="project-qa">项目问答</button><details class="project-more-actions"><summary class="button">更多</summary><div><button class="button" data-action="project-knowledge">项目知识</button>':''}${project?.owner_id===authSession.user.id?'<button class="button subtle" data-action="share-project">共享项目</button>':''}${project&&project.can_edit!==false?'<button class="button subtle" data-action="edit-project">编辑项目</button>':''}${project?'</div></details>':''}<button class="button primary" data-action="open-import">${icons.plus}导入论文</button></div></div>${libraryNavigation()}<div id="project-research-panel" class="project-research-panel" hidden></div>${state.editProject&&project?`<form id="edit-project-form" class="inline-panel"><label>项目名称<input name="name" value="${esc(project.name)}" required maxlength="100"></label><label>所属目录<select name="parent_id">${projectOptions(project.parent_id,true,project.id)}</select></label><button type="submit" class="button primary">保存</button><button class="button" type="button" data-action="edit-project">收起</button></form>`:''}<div class="library-toolbar"><label class="search-box">${icons.search}<input id="library-query" type="search" placeholder="搜索已入库的论文…" aria-label="搜索已入库论文" value="${esc(state.query)}"></label>${state.projectId?`<label class="check-label library-children"><input id="library-children" type="checkbox" ${state.includeChildren?'checked':''}>包含子项目</label>`:''}<select id="library-status" aria-label="筛选阅读状态"><option value="all">全部状态</option>${Object.entries(statuses).map(([key,name])=>`<option value="${key}" ${state.status===key?'selected':''}>${name}</option>`).join('')}</select></div><div id="library-results" class="library-results">${paperList()}</div>`;
   }
   function paperList(){
+    state.libraryItems=[];
     if(state.loading)return '<div class="empty-state"><div class="loading-ring"></div><p>正在读取论文库…</p></div>';
     const scope=projectScope(),rows=state.papers.filter(p=>state.status==='all'||memberships(p).some(m=>scope.has(m.project_id)&&m.status===state.status));
     if(!rows.length)return `<div class="empty-state">${icons.book}<h2>${state.query?'没有找到匹配论文':'还没有入库论文'}</h2><p>粘贴 arXiv 链接或上传 PDF，即可开始阅读。</p><button class="button primary" data-action="open-import">导入论文</button></div>`;
-    return `<div class="result-caption"><span>${rows.length} 篇论文</span><span>按加入时间排列</span></div><div class="paper-grid">${rows.map(p=>{const ms=memberships(p),m=paperMembership(p,state.projectId,scope,state.status),selected=m.project_id||'inbox';return `<article class="paper-card"><div class="paper-card-top"><span class="pdf-label">PDF</span><span class="pill ${m.status==='read'?'green':''}">${statuses[m.status]||'待读'}</span><span class="muted">${esc(p.page_count||0)} 页</span></div><h2><a href="/read/${encodeURIComponent(p.id)}?project=${encodeURIComponent(selected)}">${esc(p.title)}</a></h2><div class="paper-projects">${ms.map(x=>`<span>${esc(projectPath(x.project_id)||'项目')}</span>`).join('')}</div><div class="paper-card-foot"><span>${p.translated_filename?'译文 PDF 已就绪':p.active_translation_run_id?'已启动逐页翻译，可查看已就绪页面':p.has_translation?'译文可阅读':'可按需逐页翻译'}</span><a class="text-link" href="/read/${encodeURIComponent(p.id)}?project=${encodeURIComponent(selected)}">连续阅读 ${icons.arrow}</a></div><div class="paper-social-row">${feedbackMarkup({paper_id:p.id})}</div><div class="paper-process"><button class="button small" data-process-paper="${esc(p.id)}" data-process-project="${esc(selected)}">安排解析 / AI 处理</button></div><details class="associate-paper"><summary>关联到其他项目</summary><form data-associate="${esc(p.id)}"><select name="project_id" aria-label="关联目标项目">${projectOptions(selected)}</select><button class="button small" type="submit">关联</button></form></details></article>`;}).join('')}</div>`;
+    state.libraryItems=rows.map(p=>{
+      const membership=paperMembership(p,state.projectId,scope,state.status);
+      return {...p,paper_id:p.id,reader_project:membership.project_id||authSession.user.inbox_id||'inbox',reader_status:membership.status||'unread'};
+    });
+    const footer=p=>`<details class="paper-card-management"><summary><span>${statuses[p.reader_status]||'待读'} · ${esc(p.page_count||0)} 页</span><span>项目与处理</span></summary><div class="paper-projects">${memberships(p).map(x=>`<span>${esc(projectPath(x.project_id)||'项目')}</span>`).join('')}</div><p class="small muted">${p.translated_filename?'译文 PDF 已就绪':p.active_translation_run_id?'逐页译文正在处理':p.has_translation?'译文可阅读':'可按需逐页翻译'}</p><button class="button small" data-process-paper="${esc(p.id)}" data-process-project="${esc(p.reader_project)}">安排解析 / AI 处理</button><form class="paper-card-associate" data-associate="${esc(p.id)}"><label>关联到其他项目<select name="project_id" aria-label="关联目标项目">${projectOptions(p.reader_project)}</select></label><button class="button small" type="submit">关联</button></form></details>`;
+    return `<div class="explore-results-toolbar"><span>${rows.length} 篇论文</span><span class="small muted">按加入时间排列</span><span class="grow"></span><div class="result-layout" role="group" aria-label="结果列数"><button data-library-columns="1" aria-pressed="${state.libraryColumns===1}">单列</button><button data-library-columns="2" aria-pressed="${state.libraryColumns===2}">双列</button></div></div><div class="unified-paper-grid" data-columns="${state.libraryColumns}">${paperCards(state.libraryItems,{esc,safeURL,footer})}</div>`;
   }
   function processingOptions(){
     const p=state.importer.processing;
@@ -365,7 +372,7 @@ async function mountWorkspace() {
   function restoreFormFocus(previous){if(!previous)return;const field=qs(previous.selector);field?.focus?.({preventScroll:true});if(typeof previous.start==='number'&&field?.setSelectionRange)try{field.setSelectionRange(previous.start,previous.end);}catch{}}
   function render({focusHeading=false}={}){
     welcomeController?.dispose();settingsController?.dispose();portabilityController?.dispose();bundleController?.dispose();templateController?.dispose();readerAccountsController?.dispose();
-    recommendationPanel?.dispose();recommendationPanel=null;feedbackController?.dispose();feedbackController=null;const recMount=++recommendationMount;
+    qs('.paper-figure-dialog')?.close?.();recommendationPanel?.dispose();recommendationPanel=null;feedbackController?.dispose();feedbackController=null;const recMount=++recommendationMount;
     const focused=document.activeElement;
     const previous=!focusHeading&&focused?.form?.id&&focused?.name?{selector:`#${focused.form.id} [name="${focused.name}"]`,start:focused.selectionStart,end:focused.selectionEnd}:null;
     const titles={readers:'阅读用户',recommendations:'为你推荐',discover:'搜索与推荐',catalog:'论文索引',library:'我的论文库',imports:'导入与任务',groups:'研究小组',skills:'管理员设置'};
@@ -394,7 +401,7 @@ async function mountWorkspace() {
   async function loadDiscovery(){exploreState.q=state.discoveryMode==='search'?state.searchQuery:'';exploreState.scope=state.searchScope;render();}
   async function loadPapers(){
     const seq=++querySequence;state.loading=true;if(qs('#library-results'))qs('#library-results').innerHTML=paperList();
-    const query=new URLSearchParams();if(state.projectId)query.set('project_id',state.projectId);if(state.query)query.set('q',state.query);if(state.projectId&&state.includeChildren)query.set('include_children','true');
+    const query=new URLSearchParams({include_card:'true'});if(state.projectId)query.set('project_id',state.projectId);if(state.query)query.set('q',state.query);if(state.projectId&&state.includeChildren)query.set('include_children','true');
     try{const result=await api('/papers?'+query);if(seq!==querySequence)return;state.papers=list(result);state.loading=false;if(qs('#library-results'))qs('#library-results').innerHTML=paperList();}
     catch(e){if(seq!==querySequence)return;state.loading=false;if(qs('#library-results'))qs('#library-results').innerHTML=`<div class="error-panel">${esc(e.message)}</div>`;}
   }
@@ -433,6 +440,12 @@ async function mountWorkspace() {
   app.addEventListener('click',async event=>{
     const button=event.target.closest('button');if(!button)return;
     try{
+      if(state.view==='library'&&state.librarySection==='papers'){
+        if(button.dataset.libraryColumns){state.libraryColumns=Number(button.dataset.libraryColumns)===1?1:2;qs('#library-results').innerHTML=paperList();return;}
+        if(button.dataset.paperFigure!==undefined){openPaperFigure(app,state.libraryItems[Number(button.dataset.paperFigure)],button,esc);return;}
+        if(button.dataset.paperOpen!==undefined){const item=state.libraryItems[Number(button.dataset.paperOpen)];if(item)location.assign(`/read/${encodeURIComponent(item.paper_id)}?project=${encodeURIComponent(item.reader_project)}`);return;}
+      }
+
       if(button.dataset.clearCatalog){const mapping=catalogFilterFields[button.dataset.clearCatalog];if(mapping){const [field]=mapping;state[field]=['source','verification_status'].includes(button.dataset.clearCatalog)?'all':'';if(button.dataset.clearCatalog==='direction')state.catalogTopic='';const control=qs('#catalog-search-form')?.elements?.[button.dataset.clearCatalog];if(control)control.value=state[field];state.catalogPage=1;await loadCatalog();(qs('#catalog-active-filters button')||qs('#catalog-search-form input'))?.focus?.();}return;}
       if(button.dataset.librarySection){state.librarySection=button.dataset.librarySection;await setView('library');return;}
       if(button.dataset.view){await setView(button.dataset.view);return;}

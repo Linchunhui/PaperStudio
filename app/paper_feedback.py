@@ -112,7 +112,8 @@ def starred(page=1, limit=24):
                 paper = con.execute('SELECT data FROM catalog_papers WHERE id=?',(item['catalog_paper_id'],)).fetchone()
                 if paper:
                     from .recommendation_content import presentation
-                    public = json.loads(paper[0]);item={**item,**public,**presentation(con,public)}
+                    from .paper_figures import presentation as figure_presentation
+                    public = json.loads(paper[0]);item={**item,**public,**presentation(con,public),**figure_presentation(public)}
             if row['subject'].startswith('paper:'):
                 try:
                     local = core.get_paper(row['subject'][6:])
@@ -121,6 +122,8 @@ def starred(page=1, limit=24):
                 if not local['memberships']:
                     continue
                 from urllib.parse import urlencode
+                from .recommendation_content import library_cards
+                item.update(library_cards([local])[0])
                 item['reader_href'] = '/read/'+local['id']+'?'+urlencode({'project':local['memberships'][0]['project_id']})
             items.append({**item, 'id':item.get('id') or row['subject'], 'feedback':state(con,row['subject']), 'reasons':['你收藏的论文']})
     return {'items':items[(page-1)*limit:page*limit], 'total':len(items), 'page':page, 'pages':(len(items)+limit-1)//limit}

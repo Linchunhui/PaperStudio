@@ -56,6 +56,7 @@ with tempfile.TemporaryDirectory(prefix='paperstudio-browser-') as data:
                 page.goto(base)
                 page.get_by_role('button',name='打开阅读示例',exact=True).click()
                 page.wait_for_url('**/read/**')
+                sample_url=page.url
                 layer=page.locator('.pdf-page[data-side=original] .text-layer').first
                 expect(layer).to_be_visible(timeout=20000)
                 page.locator('.pdf-page[data-side=original] img').first.evaluate('img => img.decode()')
@@ -74,6 +75,27 @@ with tempfile.TemporaryDirectory(prefix='paperstudio-browser-') as data:
                 page.locator('.pdf-page[data-side=original] img').first.evaluate('img => img.decode()')
                 page.screenshot(path=str(OUTPUT/'reader-desktop.png'),full_page=True)
                 assert page.request.get(base+'/api/jobs').json()==[]
+                page.goto(base+'/?view=library')
+                card=page.locator('.unified-paper').filter(has_text='自编 PDF 示例').first
+                expect(card).to_be_visible()
+                expect(card.locator('.paper-card-structured')).not_to_have_attribute('open','')
+                card.locator('.paper-card-structured > summary').click()
+                expect(card.locator('.card-structured-body')).to_be_visible()
+                page.locator('[data-library-columns="2"]').click()
+                expect(page.locator('.unified-paper-grid')).to_have_attribute('data-columns','2')
+                page.locator('[data-library-columns="1"]').click()
+                expect(page.locator('.unified-paper-grid')).to_have_attribute('data-columns','1')
+                card.locator('.paper-card-management > summary').click()
+                expect(card.locator('[data-process-paper]')).to_be_visible()
+                card.locator('[data-paper-open]').click()
+                page.wait_for_url('**/read/**')
+                assert page.url==sample_url
+                page.goto(base+'/?view=library')
+                page.set_viewport_size({'width':390,'height':844})
+                expect(page.locator('.unified-paper').first).to_be_visible()
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+                page.screenshot(path=str(OUTPUT/'library-mobile.png'),full_page=True)
+                page.set_viewport_size({'width':1440,'height':1000})
                 page.goto(base+'/?view=skills')
                 expect(page.locator('#model-setup-form')).to_be_visible()
                 expect(page.locator('#model-setup-form [name=provider]')).to_have_value('none')

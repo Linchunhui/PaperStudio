@@ -41,6 +41,70 @@ def paper_presentation(paper_id, project_id):
         return {"catalog_paper_id": paper["id"], **presentation(con, paper)}
 
 
+def _library_catalog(con, local, tables):
+    """Resolve verified links, or a unique accessible exact-PDF duplicate.
+
+    Titles, filenames and unverified source aliases are never identity evidence.
+    A different account's inaccessible paper cannot supply the duplicate link.
+    """
+    from . import core
+    from fastapi import HTTPException
+    if not {'catalog_papers', 'paper_catalog_links'} <= tables:
+        return None
+    row = con.execute("SELECT c.id,c.data FROM catalog_papers c JOIN paper_catalog_links l ON l.catalog_paper_id=c.id WHERE l.paper_id=? AND l.match_method='verified-source'", (local['id'],)).fetchone()
+    if row:
+        return {**json.loads(row['data']), 'id': row['id']}
+    digest = local.get('sha256')
+    if not isinstance(digest, str) or len(digest) != 64:
+        return None
+    matches = {}
+    for row in con.execute("SELECT p.id AS paper_id,c.id,c.data FROM papers p JOIN paper_catalog_links l ON l.paper_id=p.id JOIN catalog_papers c ON c.id=l.catalog_paper_id WHERE p.sha256=? AND l.match_method='verified-source'", (digest,)):
+        try:
+            core.get_paper(row['paper_id'])
+        except HTTPException:
+            continue
+        matches[row['id']] = {**json.loads(row['data']), 'id': row['id']}
+    return next(iter(matches.values())) if len(matches) == 1 else None
+
+
+def library_cards(papers):
+    """Add public card fields to rows already authorized by the library route.
+
+    Local identity, custom titles, permissions and per-project progress win over
+    public metadata. Model/network jobs and private corpus adapters are not used.
+    """
+    from . import core, paper_figures
+    if not papers:
+        return []
+    # An allowlist prevents arbitrary public metadata from injecting library state.
+    fields = ('authors', 'institutions', 'published_at', 'year', 'arxiv_id', 'doi',
+              'url', 'pdf_url', 'github_url', 'hf_upvotes', 'github_stars',
+              'classification', 'conferences', 'provenance', 'kind')
+    result = []
+    with core.db() as con:
+        tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        for local in papers:
+            # Recheck authorization for callers other than the library list route.
+            core.get_paper(local['id'])
+            public = _library_catalog(con, local, tables)
+            content = {}
+            if public:
+                content = {key: public[key] for key in fields if key in public}
+                content.update(presentation(con, public))
+                card = content.get('reading_card')
+                # Reading cards may describe another PDF revision of the same ID.
+                if card and card.get('source_sha256') != local.get('sha256'):
+                    content.pop('reading_card', None)
+                # A catalog entry can have several accessible PDF revisions.
+                # Do not show a different revision's image on this library card.
+                linked = paper_figures._linked(public['id'])
+                if linked and linked['sha256'] == local.get('sha256'):
+                    content.update(paper_figures.presentation(public))
+                content['catalog_paper_id'] = public['id']
+            result.append({**content, **local, 'paper_id': local['id']})
+    return result
+
+
 def embedding_document(paper):
     title = str(paper.get("title") or "").strip()
     abstract = str(paper.get("abstract") or "").strip()

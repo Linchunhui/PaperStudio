@@ -46,3 +46,16 @@ Run `python scripts/browser_smoke.py` with `requirements-browser.txt` installed 
 real Chromium setup, managed-reader switching, anchored notes, templates, exports
 and narrow-screen checks. Tests do not call a live model. Container builds and
 real external model quality require their separate acceptance steps.
+
+## November 19 unified list update
+
+Index, personal library, project and starred lists now share the compact card
+renderer, with one/two-column controls and a collapsed structured interpretation.
+Library enrichment is opt-in (`include_card=true`); verified catalog mapping adds
+public metadata without replacing local IDs, custom titles, project membership,
+reading progress or access checks. Opening a card interpretation renders existing
+public `catalog-material` fields only: it does not fetch a private corpus, download
+a PDF or start a model job, and is not a full-paper understanding certificate.
+Missing metadata and interpretations stay explicitly unavailable. Project actions
+remain in a collapsed management area. No personal library contents or index data
+are bundled. The private bulk-corpus screen and its remote adapters are not copied.

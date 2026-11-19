@@ -157,7 +157,7 @@ def update_project(project_id: str, body: ProjectPatch):
 
 
 @router.get("/papers")
-def papers(project_id: str | None = None, q: str = Query(default="", max_length=500), include_children: bool = False):
+def papers(project_id: str | None = None, q: str = Query(default="", max_length=500), include_children: bool = False, include_card: bool = False):
     visible = core.visible_project_ids()
     selected = list(visible)
     if project_id:
@@ -187,6 +187,9 @@ def papers(project_id: str | None = None, q: str = Query(default="", max_length=
     if project_id:
         for paper in result:
             paper["membership"] = next((m for m in paper["memberships"] if m["project_id"] == project_id), None)
+    if include_card:
+        from .recommendation_content import library_cards
+        return library_cards(result)
     return result
 
 

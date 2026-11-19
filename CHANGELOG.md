@@ -2,6 +2,9 @@
 
 ## Unreleased — project features with portable model APIs
 
+- November 19: unify index, library/project and starred cards with collapsed public interpretations, contextual project controls and one/two-column layouts.
+- Opt-in library metadata enrichment preserves private identity, custom titles, permissions and exact PDF version boundaries.
+
 - Compact image-capable cards, reliable next-batch navigation and PDF wheel zoom.
 - Managed reader spaces with isolated activity and stale-session protection.
 - Source-verified topic review/version packages and optional explicit provider-based reranking.
