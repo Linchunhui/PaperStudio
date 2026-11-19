@@ -11,7 +11,9 @@ await ui.click({indexFollow:'author',value:'Alice'});assert.deepEqual(JSON.parse
 assert.deepEqual(p.authors,['Alice']);
 await ui.click({indexEnter:'author',value:'Alice'});assert.match(ui.root.innerHTML,/name="institution"/);assert.match(ui.root.innerHTML,/name="topic"/);
 assert.match(ui.node('#index-results').innerHTML,/&lt;unsafe&gt;/);assert.doesNotMatch(ui.node('#index-results').innerHTML,/href="javascript:/);
-assert.match(ui.node('#index-results').innerHTML,/Existing interpretation/);assert.match(ui.node('#index-results').innerHTML,/HF 点赞：0/);assert.match(ui.node('#index-results').innerHTML,/GitHub Stars：未提供/);assert.match(ui.node('#index-results').innerHTML,/2026-W43/);
+assert.match(ui.node('#index-results').innerHTML,/Existing interpretation/);assert.match(ui.node('#index-results').innerHTML,/HF 点赞 0/);assert.match(ui.node('#index-results').innerHTML,/GitHub Stars —/);assert.match(ui.node('#index-results').innerHTML,/2026-W43/);
+await ui.click({columns:'1'});assert.equal(state.columns,1);assert.match(ui.node('#index-results').innerHTML,/data-columns="1"/);
+await ui.click({columns:'2'});assert.equal(state.columns,2);assert.match(ui.node('#index-results').innerHTML,/data-columns="2"/);
 await ui.submit('index-paper-filters',{q:'OCR',category:'document',topic:'document.ocr',institution:'Lab A',author:'Alice',conference:'ICLR',sort:'oldest'});
 const query=()=>new URL('https://local'+requests.filter(r=>r.path.startsWith('/catalog?')).at(-1).path).searchParams;
 assert.equal(query().get('institution'),'Lab A');assert.equal(query().get('topic'),'document.ocr');assert.equal(query().get('author'),'Alice');assert.equal(query().get('sort'),'oldest');

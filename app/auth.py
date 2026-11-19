@@ -49,6 +49,11 @@ def init_auth() -> None:
         CREATE TABLE IF NOT EXISTS auth_attempts (
             identity_hash TEXT PRIMARY KEY, failures INTEGER NOT NULL, window_start INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS reader_accounts (
+            user_id TEXT PRIMARY KEY REFERENCES users(id), owner_id TEXT NOT NULL REFERENCES users(id),
+            persona TEXT NOT NULL, simulated INTEGER NOT NULL DEFAULT 0, seed_key TEXT,
+            created_at TEXT NOT NULL, UNIQUE(owner_id,seed_key)
+        );
         CREATE TABLE IF NOT EXISTS groups (
             id TEXT PRIMARY KEY, name TEXT NOT NULL, owner_id TEXT NOT NULL,
             created_at TEXT NOT NULL
@@ -81,6 +86,8 @@ def init_auth() -> None:
             UNIQUE(annotation_id,version)
         );
         """)
+        if 'active_user_id' not in {r['name'] for r in con.execute('PRAGMA table_info(auth_sessions)')}:
+            con.execute('ALTER TABLE auth_sessions ADD COLUMN active_user_id TEXT')
         for column, declaration in [
             ("owner_id", "TEXT NOT NULL DEFAULT 'local'"),
             ("visibility", "TEXT NOT NULL DEFAULT 'private'"),
@@ -157,19 +164,25 @@ def session_from_token(token: str | None) -> dict | None:
     if not token or len(token) > 256:
         return None
     with core.db() as con:
-        row = con.execute('''SELECT s.csrf_token,s.expires_at,u.* FROM auth_sessions s
+        row = con.execute('''SELECT s.csrf_token,s.expires_at,s.active_user_id,u.* FROM auth_sessions s
             JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.disabled=0''',
             (token_hash(token), int(time.time()))).fetchone()
-    if not row:
+        if not row:
+            return None
+        active = con.execute('''SELECT u.* FROM reader_accounts a JOIN users u ON u.id=a.user_id
+            WHERE a.owner_id=? AND a.user_id=? AND u.disabled=0''', (row['id'], row['active_user_id'])).fetchone() if row['active_user_id'] else None
+    if row['active_user_id'] and active is None:
+        # A disabled/deleted persona must never silently regain owner authority.
         return None
-    return {'user': public_user(row), 'csrf_token': row['csrf_token'], 'expires_at': row['expires_at']}
+    return {'user': public_user(active or row), 'account_owner': public_user(row),
+            'is_reader_account': active is not None, 'csrf_token': row['csrf_token'], 'expires_at': row['expires_at']}
 
 
 def new_session(user_id: str) -> tuple[str, dict]:
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     with core.db() as con:
         con.execute('DELETE FROM auth_sessions WHERE expires_at<=?', (int(time.time()),))
-        con.execute('INSERT INTO auth_sessions VALUES(?,?,?,?,?)',
+        con.execute('INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)',
                     (token_hash(token), user_id, csrf, int(time.time()) + SESSION_SECONDS, core.now()))
     return token, session_from_token(token)
 

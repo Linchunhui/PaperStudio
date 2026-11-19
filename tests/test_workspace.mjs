@@ -3,6 +3,8 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
+import {load} from './ui-harness.mjs';
+const opened=[];
 const source = fs.readFileSync(new URL('../web/app.js', import.meta.url), 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '');
 const elements = new Map();
 const handlers = new Map();
@@ -31,12 +33,13 @@ const payload = path => {
   if(path.startsWith('/api/papers'))return libraryRows;
   throw new Error('Unexpected endpoint: '+path);
 };
-const context=vm.createContext({mountReader:()=>{},mountWelcome:()=>({dispose(){}}),mountModelSettings:()=>({dispose(){}}),mountPortability:()=>({dispose(){}}),mountDataBundle:()=>({dispose(){}}),mountProjectTemplates:()=>({dispose(){}}),feedbackMarkup:()=>'',mountFeedback:()=>({dispose(){}}),console,URL,URLSearchParams,Headers,FormData:Fields,location:{pathname:'/',search:''},history:{replaceState(){}},document:{querySelector:el},window:{addEventListener(type,fn){lifecycle.set(type,fn);}},localStorage:{getItem(){return null;},setItem(){}},setTimeout(){return 1;},clearTimeout(){},fetch:async(path,request)=>{
+const context=vm.createContext({mountReader:()=>{},mountWelcome:()=>({dispose(){}}),mountModelSettings:()=>({dispose(){}}),mountPortability:()=>({dispose(){}}),mountDataBundle:()=>({dispose(){}}),mountProjectTemplates:()=>({dispose(){}}),feedbackMarkup:()=>'',mountFeedback:()=>({dispose(){}}),console,URL,URLSearchParams,Headers,FormData:Fields,location:{pathname:'/',search:'',assign:path=>opened.push(path)},history:{replaceState(){}},document:{querySelector:el},window:{addEventListener(type,fn){lifecycle.set(type,fn);}},localStorage:{getItem(){return null;},setItem(){}},setTimeout(){return 1;},clearTimeout(){},fetch:async(path,request)=>{
   requests.push({path,request});
   if(path.startsWith('/api/discovery/search?')&&path.includes('q=slow'))return new Promise(resolve=>{slowSearchResolve=()=>resolve({ok:true,headers:new Headers({'content-type':'application/json'}),json:async()=>({items:[{id:'new',kind:'paper',title:'New search paper',url:'https://arxiv.org/abs/2501.12948',source_id:'arxiv'}],statuses:[]})});});
   const data=request.method==='POST'?{id:'i1',paper_id:'p1',status:'queued'}:payload(path);
   return {ok:true,headers:new Headers({'content-type':'application/json'}),json:async()=>data};
 }});
+for(const file of ['math.js','paper-insights.js','card-structured.js','paper-cards.js'])load(context,file);
 const settle=async()=>{for(let i=0;i<25;i++)await Promise.resolve();};
 const click=async dataset=>{await handlers.get('click')({target:{closest:()=>({dataset,isConnected:true,disabled:false})}});await settle();};
 (async()=>{
@@ -70,6 +73,15 @@ const click=async dataset=>{await handlers.get('click')({target:{closest:()=>({d
   await settle();
   assert.ok(requests.filter(x=>x.path.startsWith('/api/papers')).length>beforeLibraryRefresh,'newly downloaded paper must refresh the visible library');
   assert.match(el('#library-results').innerHTML,/Background paper/,'completed background download must appear without navigating away');
+  assert.ok(requests.filter(x=>x.path.startsWith('/api/papers')).every(x=>new URL('https://local'+x.path).searchParams.get('include_card')==='true'));
+  assert.match(el('#library-results').innerHTML,/paper-card-management/);
+  assert.match(el('#library-results').innerHTML,/paper-card-structured/);
+  await click({libraryColumns:'1'});
+  assert.match(el('#library-results').innerHTML,/data-columns="1"/);
+  await click({libraryColumns:'2'});
+  assert.match(el('#library-results').innerHTML,/data-columns="2"/);
+  await click({paperOpen:'0'});
+  assert.equal(opened.at(-1),'/read/new-paper?project=inbox');
   const shared={memberships:[{project_id:'parent',status:'unread'},{project_id:'child',status:'read'}]};
   assert.equal(context.paperMembership(shared,'parent',new Set(['parent','child']),'read').project_id,'child','status filtering must open the matching project context');
   assert.equal(context.paperMembership(shared,'parent',new Set(['parent','child']),'all').project_id,'parent','unfiltered reading should preserve current project context');

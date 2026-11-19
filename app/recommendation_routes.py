@@ -91,7 +91,11 @@ def options():
 
 @router.get("/recommendations")
 def feed(limit: int = Query(default=24, ge=1, le=60), cursor: str = Query(default="", max_length=100), category_id: str = Query(default="", max_length=100), topic_id: str = Query(default="", max_length=100)):
-    return recommendations.recommend(limit=limit, cursor=cursor, category_id=category_id, topic_id=topic_id)
+    result = recommendations.recommend(limit=limit, cursor=cursor, category_id=category_id, topic_id=topic_id)
+    from .paper_figures import presentation as figure_presentation
+    for item in result.get("items", []):
+        item.update(figure_presentation(item))
+    return result
 
 
 @router.get("/papers/{paper_id}/insights")

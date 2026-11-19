@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — project features with portable model APIs
+
+- November 19: unify index, library/project and starred cards with collapsed public interpretations, contextual project controls and one/two-column layouts.
+- Opt-in library metadata enrichment preserves private identity, custom titles, permissions and exact PDF version boundaries.
+
+- Compact image-capable cards, reliable next-batch navigation and PDF wheel zoom.
+- Managed reader spaces with isolated activity and stale-session protection.
+- Source-verified topic review/version packages and optional explicit provider-based reranking.
+- Retains 0.5.0 onboarding, imports/exports and model settings; no VPF integration or private dataset migration.
+- Scope and validation: [project synchronization](docs/project-sync.md).
+
 ## 0.5.0 · 2026-10-29
 
 第一次使用无需配置模型：打开自编 PDF 示例即可阅读和记录。管理员可以在网页选择兼容 API、本地模型或 Codex，分别查看配置、运行组件、连接和实际调用状态。

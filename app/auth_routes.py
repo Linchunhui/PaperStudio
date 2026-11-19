@@ -46,6 +46,8 @@ def _features() -> dict:
 def session_payload(session: dict | None) -> dict:
     return {'setup_required': auth.setup_required(),
             'user': session['user'] if session else None,
+            'account_owner': session.get('account_owner') if session else None,
+            'is_reader_account': session.get('is_reader_account', False) if session else False,
             'csrf_token': session['csrf_token'] if session else None,
             'features': _features() if session else {}}
 

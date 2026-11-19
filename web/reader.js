@@ -189,6 +189,7 @@ export async function mountReader({paperId,projectId}) {
   let observer, scrollFrame, saveTimer, toolSheet, relatedPanel, feedbackController, sidebarCollapsed=false, sidebarDrag=null, sidebarRatio=.27, sidebarFrame, positionQueue = Promise.resolve(true), refreshing = false, refreshSequence = 0;
   try{const saved=Number(localStorage.getItem('paperstudio.reader.sidebar-ratio.v1'));if(saved>0&&saved<=.65)sidebarRatio=saved;}catch{}
   try{sidebarCollapsed=localStorage.getItem('paperstudio.reader.sidebar-collapsed.v1')==='1';}catch{}
+  let wheelZoomDelta=0,wheelZoomAt=0;
   const finishedProjects = new Set(), listeners=[];
   const isAdmin=()=>authSession?.user?.role==='admin'||authSession?.user?.is_admin===true;
   const listen=(target,type,handler,options)=>{target.addEventListener(type,handler,options);listeners.push(()=>target.removeEventListener(type,handler,options));};
@@ -237,6 +238,7 @@ export async function mountReader({paperId,projectId}) {
     qs('#document-pages').innerHTML=state.manifest.map(p=>`<section class="page-pair" data-pair-page="${p.page}" aria-label="第 ${p.page} 页"><article class="page-slot"><div class="pair-page-label">原文 · ${p.page}</div><div id="page-original-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article><article class="page-slot"><div class="pair-page-label">译文 · ${p.page}</div><div id="page-translation-${p.page}" class="pdf-frame" style="aspect-ratio:${p.width}/${p.height}"></div></article><article id="reading-page-${p.page}" class="reflow-page reflow-only" data-reading-page="${p.page}"><div class="reflow-page-heading">第 ${p.page} 页</div><p class="muted">正在重排原文…</p></article></section>`).join('');
     for(const element of app.querySelectorAll('.page-pair'))state.pairs.set(Number(element.dataset.pairPage),element);
     const scroll=qs('#document-scroll'); scroll.addEventListener('scroll',handleScroll,{passive:true});
+    listen(scroll,'wheel',handleZoomWheel,{passive:false});
     observer=new IntersectionObserver(entries=>{
       for(const entry of entries){const page=Number(entry.target.dataset.pairPage);if(entry.isIntersecting){state.near.add(page);void loadPair(page);}else{state.near.delete(page);unloadPair(page);}}
     },{root:scroll,rootMargin:'1000px 0px',threshold:0});
@@ -563,12 +565,40 @@ export async function mountReader({paperId,projectId}) {
     await loadPair(page);
     if(remember)await persistPosition();
   }
-  async function setZoom(value) {
-    readPosition(); const page=state.page,offset=state.pageOffset;
-    state.zoom=Math.min(200,Math.max(75,Number(value)||100));
-    qs('#document-pages').style.width=state.zoom+'%';
-    updateToolbar(); await new Promise(resolve=>requestAnimationFrame(resolve));
-    await goToPage(page,{offset,remember:false});
+  async function setZoom(value,point=null) {
+    const zoom=Math.min(200,Math.max(75,Number(value)||100));
+    if(state.disposed||zoom===state.zoom)return;
+    const scroll=qs('#document-scroll'),pages=qs('#document-pages');
+    if(!scroll||!pages)return;
+    readPosition();
+    // Keep the point under the mouse fixed in PDF coordinates. Toolbar zoom
+    // keeps the current reading line instead. Both PDF columns share one scale.
+    const anchor=point?.target?.closest?.('.pdf-frame')||state.pairs.get(state.page);
+    const before=anchor?.getBoundingClientRect(),viewport=scroll.getBoundingClientRect();
+    if(!before?.width||!before.height)return;
+    const x=Number.isFinite(point?.clientX)?point.clientX:viewport.left;
+    const y=Number.isFinite(point?.clientY)?point.clientY:viewport.top+10;
+    const relativeX=(x-before.left)/before.width,relativeY=(y-before.top)/before.height;
+    state.zoom=zoom;
+    pages.style.width=zoom+'%';
+    pages.style.setProperty('--reader-zoom',String(zoom/100));
+    const after=anchor.getBoundingClientRect();
+    scroll.scrollLeft+=after.left+relativeX*after.width-x;
+    scroll.scrollTop+=after.top+relativeY*after.height-y;
+    readPosition();handleScroll();
+  }
+  function handleZoomWheel(event) {
+    if(state.disposed||state.readingMode!=='pdf'||(!event.ctrlKey&&!event.metaKey)||!Number.isFinite(event.deltaY)||!event.deltaY)return;
+    // Cancel browser/page zoom even at our limits. Ordinary wheel scrolling
+    // and wheel events in the reading assistant remain untouched.
+    event.preventDefault();
+    const delta=event.deltaY*(event.deltaMode===1?20:event.deltaMode===2?qs('#document-scroll').clientHeight:1);
+    if(event.timeStamp-wheelZoomAt>250||Math.sign(delta)!==Math.sign(wheelZoomDelta))wheelZoomDelta=0;
+    wheelZoomAt=event.timeStamp;
+    wheelZoomDelta+=Math.max(-60,Math.min(60,delta));
+    if(Math.abs(wheelZoomDelta)<60)return;
+    const direction=Math.sign(wheelZoomDelta);wheelZoomDelta-=direction*60;
+    void setZoom(state.zoom-direction*25,event);
   }
   function persistPosition(status) {
     clearTimeout(saveTimer);

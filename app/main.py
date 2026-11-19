@@ -28,11 +28,15 @@ from .feedback_routes import router as feedback_router
 from .relations_routes import router as relations_router
 from .onboarding_routes import router as onboarding_router
 from .portability_routes import router as portability_router
+from .reader_accounts import router as reader_accounts_router
+from . import topics
+from .recommendation_rerank_routes import router as recommendation_rerank_router
 
 
 @asynccontextmanager
 async def lifespan(app):
     core.init_db()
+    topics.init_topics()
     from . import bibliography
     bibliography.init_db()
     jobs.init_jobs()
@@ -40,6 +44,8 @@ async def lifespan(app):
     discovery.init_discovery()
     catalog.init_catalog()
     init_recommendations()
+    from .reader_behavior import init_behavior
+    init_behavior()
     init_vectors()
     init_feedback()
     research.init_research()
@@ -88,6 +94,9 @@ async def session_boundary(request: Request, call_next):
     if path.startswith('/api/') and not public:
         if not session:
             return JSONResponse({'detail': '请先登录', 'setup_required': auth.setup_required()}, status_code=401)
+        expected_user = request.headers.get('x-reader-account')
+        if expected_user and expected_user != session['user']['id']:
+            return JSONResponse({'detail': '阅读用户已切换，请刷新页面。', 'code': 'reader_account_changed'}, status_code=409)
         if mutation and not hmac.compare_digest(request.headers.get('x-csrf-token', ''), session['csrf_token']):
             return JSONResponse({'detail': '请求校验已失效，请刷新页面后重试'}, status_code=403)
         admin_only = path in {'/api/skills', '/api/capabilities', '/api/sources', '/api/discovery/config', '/api/catalog/import', '/api/catalog/refresh-hf'} or path.startswith('/api/admin/')
@@ -107,6 +116,9 @@ async def session_boundary(request: Request, call_next):
 
 
 app.include_router(auth_router)
+app.include_router(reader_accounts_router)
+app.include_router(topics.router)
+app.include_router(recommendation_rerank_router)
 app.include_router(group_router)
 app.include_router(core_router)
 app.include_router(jobs_router)

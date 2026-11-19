@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {esc,safeURL,settle,root,paperRuntime,load} from './ui-harness.mjs';
+const c=paperRuntime();load(c,'starred-ui.js');
+const ui=root(),requests=[],opened=[],graphs=[],added=[],state={};let resolveLate;
+const item={id:'catalog-one',title:'Saved paper',structured:{methods:['Public method']}};
+const panel=c.mountStarred(ui.root,{esc,safeURL,state,toast:m=>{throw Error(m);},onOpen:x=>opened.push(x),onGraph:x=>graphs.push(x),onAdd:x=>added.push(x),api:async(path)=>{requests.push(path);if(path.includes('page=2'))return new Promise(resolve=>{resolveLate=resolve;});return {items:[item],pages:2,total:2};}});
+await settle();assert.match(ui.root.innerHTML,/Public method/);assert.match(ui.root.innerHTML,/data-columns="2"/);
+await ui.click({columns:'1'});assert.equal(state.columns,1);assert.match(ui.root.innerHTML,/data-columns="1"/);assert.equal(requests.length,1,'layout and inline interpretation require no new requests');
+await ui.click({paperOpen:'0'});assert.equal(opened[0].id,'catalog-one');
+await ui.click({paperGraph:'0'});assert.equal(graphs[0].id,'catalog-one');
+await ui.click({paperAdd:'0'});assert.equal(added[0].id,'catalog-one');
+const pending=ui.click({starredPage:'2'});await settle();panel.dispose();ui.root.innerHTML='Other account view';resolveLate({items:[{...item,title:'STALE'}],pages:2,total:2});await pending;
+assert.equal(ui.root.innerHTML,'Other account view');assert.equal(ui.handlers.size,0);
+console.log('PASS: starred unified cards, columns, open/add/graph callbacks and late navigation isolation');
